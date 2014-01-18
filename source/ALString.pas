@@ -790,7 +790,8 @@ end;
 function  ALGUIDToByteString(const Guid: TGUID): Ansistring;
 var aByteArray: TBytes;
 begin
-  aByteArray := Guid.ToByteArray;
+  SetLength(aByteArray, SizeOf(Guid));
+  Move(Guid.D1, aByteArray[0], SizeOf(Guid));
   SetString(result, PAnsiChar(@aByteArray[0]), length(aByteArray));
 end;
 
