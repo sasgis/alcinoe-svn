@@ -8239,7 +8239,7 @@ var ReplaceString: AnsiString;
     ResultCurrentPos: integer;
     ResultCurrentLength: integer;
     IgnoreCase: Boolean;
-    PosExFunct: Function(const SubStr, S: AnsiString; Offset: Integer = 1): Integer;
+    PosExFunct: Function(const SubStr, S: AnsiString; Offset: Integer): Integer;
     T1,T2: Integer;
 
 Const ResultBuffSize: integer = 16384;
@@ -8462,7 +8462,7 @@ var ReplaceString: AnsiString;
     SourceStringLength: Integer;
     InDoubleQuote: Boolean;
     InsingleQuote: Boolean;
-    PosExFunct: Function(const SubStr, S: AnsiString; Offset: Integer = 1): Integer;
+    PosExFunct: Function(const SubStr, S: AnsiString; Offset: Integer): Integer;
     T1,T2: Integer;
 
     {------------------------------------}
@@ -8547,7 +8547,7 @@ var TagEndFirstChar, TagEndFirstCharLower, TagEndFirstCharUpper: AnsiChar;
     SourceCurrentPos: integer;
     InDoubleQuote: Boolean;
     InsingleQuote: Boolean;
-    PosExFunct: Function(const SubStr, S: AnsiString; Offset: Integer = 1): Integer;
+    PosExFunct: Function(const SubStr, S: AnsiString; Offset: Integer): Integer;
     T1,T2: Integer;
 
 begin
