@@ -1002,7 +1002,13 @@ begin
             if reg.OpenKeyReadOnly('\' + aExt) then begin
               aExt := Trim(aExt);
               If (length(aExt) > 1) then begin
-                aContentType := Trim(Reg.ReadString('Content Type'));
+		try
+		  aContentType := Trim(Reg.ReadString('Content Type'));
+		except
+		  on E: ERegistryException do begin
+		    aContentType := '';
+		  end;
+                end;
                 if aContentType <> '' then AMIMEList.Values[alLowerCase(ansiString(aExt))] := AlLowerCase(ansistring(aContentType));
               end;
               Reg.CloseKey;
