@@ -420,8 +420,8 @@ type
 procedure ALGetLocaleFormatSettings(Locale: LCID; var AFormatSettings: TALFormatSettings);
 function  ALGUIDToByteString(const Guid: TGUID): Ansistring;
 function  ALNewGUIDByteString: Ansistring;
-function  ALGUIDToString(const Guid: TGUID; const WithoutBracket: boolean = false): Ansistring;
-Function  ALNewGUIDString(const WithoutBracket: boolean = false): AnsiString;
+function  ALGUIDToString(const Guid: TGUID; const WithoutBracket: boolean = false; const WithoutHyphen: boolean = false): Ansistring;
+Function  ALNewGUIDString(const WithoutBracket: boolean = false; const WithoutHyphen: boolean = false): AnsiString;
 function  ALMatchesMask(const Filename, Mask: AnsiString): Boolean;
 function  ALIfThen(AValue: Boolean; const ATrue: AnsiString; AFalse: AnsiString = ''): AnsiString; overload; {$IF CompilerVersion >= 17.0}inline;{$IFEND}
 function  ALIfThen(AValue: Boolean; const ATrue: Integer; const AFalse: Integer): Integer; overload; {$IF CompilerVersion >= 17.0}inline;{$IFEND}
@@ -542,7 +542,11 @@ function  ALNEVExtractValue(const s: AnsiString): AnsiString;
 function  ALGetStringFromFile(filename: AnsiString; const ShareMode: Word = fmShareDenyWrite): AnsiString;
 function  ALGetStringFromFileWithoutUTF8BOM(filename: AnsiString; const ShareMode: Word = fmShareDenyWrite): AnsiString;
 procedure ALSaveStringtoFile(Str: AnsiString; filename: AnsiString);
-Function  ALWideNormalize(const S: Widestring): Widestring;
+Function  ALWideNormalize(const S: Widestring;
+                          const WordSeparator: WideChar;
+                          const SymbolsToIgnore: array of WideChar): Widestring; overload;
+Function  ALWideNormalize(const S: Widestring;
+                          const WordSeparator: WideChar = '-'): Widestring; overload;
 Function  ALWideRemoveDiacritic(const S: Widestring): Widestring;
 Function  ALWideExpandLigatures(const S: Widestring): Widestring;
 Function  ALWideUpperCaseNoDiacritic(const S: Widestring): Widestring;
@@ -551,7 +555,11 @@ Function  ALUTF8RemoveDiacritic(const S: AnsiString): AnsiString;
 Function  ALUTF8ExpandLigatures(const S: AnsiString): AnsiString;
 Function  ALUTF8UpperCaseNoDiacritic(const S: AnsiString): AnsiString;
 Function  ALUTF8LowerCaseNoDiacritic(const S: AnsiString): AnsiString;
-Function  ALUTF8Normalize(const S: AnsiString): AnsiString;
+Function  ALUTF8Normalize(const S: AnsiString;
+                          const WordSeparator: ansiChar;
+                          const SymbolsToIgnore: array of AnsiChar): AnsiString; overload;
+Function  ALUTF8Normalize(const S: AnsiString;
+                          const WordSeparator: ansiChar = '-'): AnsiString; overload;
 function  ALUTF8UpperCase(const s: AnsiString): AnsiString;
 function  ALUTF8LowerCase(const s: AnsiString): AnsiString;
 function  AlUTF8Check(const S: AnsiString): Boolean;
@@ -572,12 +580,12 @@ Function  ALGetCodePageFromCharSetName(Acharset:AnsiString): Word;
 Function  ALGetCodePageFromLCID(const aLCID:Integer): Word;
 Function  ALUTF8ISO91995CyrillicToLatin(const aCyrillicText: AnsiString): AnsiString;
 Function  ALUTF8BGNPCGN1947CyrillicToLatin(const aCyrillicText: AnsiString): AnsiString;
-function ALExtractExpression(const S: AnsiString;
-                             const OpenChar, CloseChar: AnsiChar; // ex: '(' and ')'
-                             Const QuoteChars: Array of ansiChar; // ex: ['''', '"']
-                             Const EscapeQuoteChar: ansiChar; // ex: '\' or #0 to ignore
-                             var StartPos: integer;
-                             var EndPos: integer): boolean;
+function  ALExtractExpression(const S: AnsiString;
+                              const OpenChar, CloseChar: AnsiChar; // ex: '(' and ')'
+                              Const QuoteChars: Array of ansiChar; // ex: ['''', '"']
+                              Const EscapeQuoteChar: ansiChar; // ex: '\' or #0 to ignore
+                              var StartPos: integer;
+                              var EndPos: integer): boolean;
 
 Const cAlUTF8Bom = ansiString(#$EF) + ansiString(#$BB) + ansiString(#$BF);
       cAlUTF16LittleEndianBom = ansiString(#$FF) + ansiString(#$FE);
@@ -803,29 +811,45 @@ begin
   result := ALGUIDToByteString(aGuid);
 end;
 
-{*********************************************************************************************}
-function  ALGUIDToString(const Guid: TGUID; const WithoutBracket: boolean = false): Ansistring;
+{***********************************************************************************************************************************}
+function  ALGUIDToString(const Guid: TGUID; const WithoutBracket: boolean = false; const WithoutHyphen: boolean = false): Ansistring;
 begin
   if WithoutBracket then begin
-    SetLength(Result, 36);
-    {$IF CompilerVersion >= 24}{Delphi XE3}System.Ansistrings.{$IFEND}StrLFmt(PAnsiChar(Result), 36,'%.8x-%.4x-%.4x-%.2x%.2x-%.2x%.2x%.2x%.2x%.2x%.2x',   // do not localize
-      [Guid.D1, Guid.D2, Guid.D3, Guid.D4[0], Guid.D4[1], Guid.D4[2], Guid.D4[3],
-      Guid.D4[4], Guid.D4[5], Guid.D4[6], Guid.D4[7]]);
+    if WithoutHyphen then begin
+      SetLength(Result, 32);
+      {$IF CompilerVersion >= 24}{Delphi XE3}System.Ansistrings.{$IFEND}StrLFmt(PAnsiChar(Result), 32,'%.8x%.4x%.4x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x',   // do not localize
+        [Guid.D1, Guid.D2, Guid.D3, Guid.D4[0], Guid.D4[1], Guid.D4[2], Guid.D4[3],
+        Guid.D4[4], Guid.D4[5], Guid.D4[6], Guid.D4[7]]);
+    end
+    else begin
+      SetLength(Result, 36);
+      {$IF CompilerVersion >= 24}{Delphi XE3}System.Ansistrings.{$IFEND}StrLFmt(PAnsiChar(Result), 36,'%.8x-%.4x-%.4x-%.2x%.2x-%.2x%.2x%.2x%.2x%.2x%.2x',   // do not localize
+        [Guid.D1, Guid.D2, Guid.D3, Guid.D4[0], Guid.D4[1], Guid.D4[2], Guid.D4[3],
+        Guid.D4[4], Guid.D4[5], Guid.D4[6], Guid.D4[7]]);
+    end;
   end
   else begin
-    SetLength(Result, 38);
-    {$IF CompilerVersion >= 24}{Delphi XE3}System.Ansistrings.{$IFEND}StrLFmt(PAnsiChar(Result), 38,'{%.8x-%.4x-%.4x-%.2x%.2x-%.2x%.2x%.2x%.2x%.2x%.2x}',   // do not localize
-      [Guid.D1, Guid.D2, Guid.D3, Guid.D4[0], Guid.D4[1], Guid.D4[2], Guid.D4[3],
-      Guid.D4[4], Guid.D4[5], Guid.D4[6], Guid.D4[7]]);
+    if WithoutHyphen then begin
+      SetLength(Result, 34);
+      {$IF CompilerVersion >= 24}{Delphi XE3}System.Ansistrings.{$IFEND}StrLFmt(PAnsiChar(Result), 34,'{%.8x%.4x%.4x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x}',   // do not localize
+        [Guid.D1, Guid.D2, Guid.D3, Guid.D4[0], Guid.D4[1], Guid.D4[2], Guid.D4[3],
+        Guid.D4[4], Guid.D4[5], Guid.D4[6], Guid.D4[7]]);
+    end
+    else begin
+      SetLength(Result, 38);
+      {$IF CompilerVersion >= 24}{Delphi XE3}System.Ansistrings.{$IFEND}StrLFmt(PAnsiChar(Result), 38,'{%.8x-%.4x-%.4x-%.2x%.2x-%.2x%.2x%.2x%.2x%.2x%.2x}',   // do not localize
+        [Guid.D1, Guid.D2, Guid.D3, Guid.D4[0], Guid.D4[1], Guid.D4[2], Guid.D4[3],
+        Guid.D4[4], Guid.D4[5], Guid.D4[6], Guid.D4[7]]);
+    end;
   end;
 end;
 
-{***************************************************************************}
-Function  ALNewGUIDString(const WithoutBracket: boolean = false): AnsiString;
+{*****************************************************************************************************************}
+Function  ALNewGUIDString(const WithoutBracket: boolean = false; const WithoutHyphen: boolean = false): AnsiString;
 Var aGUID: TGUID;
 Begin
   if CreateGUID(aGUID) <> S_OK then RaiseLastOSError;
-  Result := ALGUIDToString(aGUID, WithoutBracket);
+  Result := ALGUIDToString(aGUID, WithoutBracket, WithoutHyphen);
 End;
 
 {***}
@@ -8691,11 +8715,13 @@ end;
 {***********************}
 // Normalize a Widestring
 // ie: l''été sur l''europe => l-ete-sur-l-europe
-Function ALWideNormalize(const S: Widestring): Widestring;
+Function  ALWideNormalize(const S: Widestring;
+                          const WordSeparator: WideChar;
+                          const SymbolsToIgnore: array of WideChar): Widestring;
 
-  {--------------------------------------------------------}
+  {~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
   {source: http://issues.apache.org/jira/browse/LUCENE-1343}
-  Procedure InternalfoldNonDiacriticChar(Var aStr: WideString);
+  Procedure _foldNonDiacriticChar(Var aStr: WideString);
   Var i, j : integer;
   Begin
     for I := 1 to length(aStr) do begin
@@ -8834,6 +8860,18 @@ Function ALWideNormalize(const S: Widestring): Widestring;
     end;
   End;
 
+  {~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+  function _IsIgnoredSymbol(aSymbol: WideChar): boolean;
+  var i: integer;
+  begin
+    result := False;
+    for I := Low(SymbolsToIgnore) to High(SymbolsToIgnore) do
+      if SymbolsToIgnore[i] = aSymbol then begin
+        result := true;
+        exit;
+      end;
+  end;
+
 Var i,j: integer;
     TmpWideStr: WideString;
 
@@ -8842,20 +8880,28 @@ Begin
   SetLength(Result,length(TmpWideStr));
   j := 0;
   For i := 1 to length(TmpWideStr) do begin
-    if IsCharAlphaNumericW(TmpWideStr[i]) then begin
+    if IsCharAlphaNumericW(TmpWideStr[i]) or
+       _IsIgnoredSymbol(TmpWideStr[i]) then begin
       inc(j);
       result[j] := TmpWideStr[i];
     end
     else if ((j >= 1) and
-             (result[j] <> '-')) then begin
+             (result[j] <> WordSeparator)) then begin
       inc(j);
-      result[j] := '-';
+      result[j] := WordSeparator;
     end;
-
   end;
-  While (J > 0) and (result[j] = '-') do dec(j);
+  While (J > 0) and (result[j] = WordSeparator) do dec(j);
   setlength(result,j);
-  InternalfoldNonDiacriticChar(result);
+  _foldNonDiacriticChar(result);
+end;
+
+{***********************}
+// Normalize a Widestring
+// ie: l''été sur l''europe => l-ete-sur-l-europe
+Function ALWideNormalize(const S: Widestring; const WordSeparator: WideChar = '-'): Widestring;
+Begin
+  result := ALWideNormalize(S, WordSeparator, []);
 end;
 
 {*************************}
@@ -8978,12 +9024,34 @@ end;
 // The result of the function is the corresponding UTF-8 encoded string
 // "normalized":
 // ie: l''été sur l''europe => l-ete-sur-l-europe
-Function ALUTF8Normalize(const S: AnsiString): AnsiString;
+Function  ALUTF8Normalize(const S: AnsiString;
+                          const WordSeparator: ansiChar;
+                          const SymbolsToIgnore: array of AnsiChar): AnsiString;
+var aWideSymbolsToIgnore: Array of WideChar;
+    i: integer;
+begin
+  setlength(aWideSymbolsToIgnore, length(SymbolsToIgnore));
+  for I := Low(SymbolsToIgnore) to High(SymbolsToIgnore) do
+    aWideSymbolsToIgnore[i] := WideChar(SymbolsToIgnore[i]);
+  {$IFDEF UNICODE}
+  Result := utf8Encode(ALWideNormalize(UTF8ToWideString(S), WideChar(WordSeparator)));
+  {$ELSE}
+  Result := utf8Encode(ALWideNormalize(UTF8Decode(S), WideChar(WordSeparator)));
+  {$ENDIF}
+end;
+
+{**************************************************}
+// S is a AnsiString that contains UTF-8 encoded characters
+// The result of the function is the corresponding UTF-8 encoded string
+// "normalized":
+// ie: l''été sur l''europe => l-ete-sur-l-europe
+Function ALUTF8Normalize(const S: AnsiString;
+                         const WordSeparator: ansiChar = '-'): AnsiString;
 begin
   {$IFDEF UNICODE}
-  Result := utf8Encode(ALWideNormalize(UTF8ToWideString(S)));
+  Result := utf8Encode(ALWideNormalize(UTF8ToWideString(S), WideChar(WordSeparator), []));
   {$ELSE}
-  Result := utf8Encode(ALWideNormalize(UTF8Decode(S)));
+  Result := utf8Encode(ALWideNormalize(UTF8Decode(S), WideChar(WordSeparator), []));
   {$ENDIF}
 end;
 

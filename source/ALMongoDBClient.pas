@@ -598,12 +598,14 @@ type
                            ReturnFieldsSelector: AnsiString;
                            Skip: integer;
                            First: Integer;
+                           NoCursorTimeout: Boolean;
                            OnNewRowFunct: TALMongoDBClientSelectDataOnNewRowFunct;
                            ExtData: Pointer;
                            const ConnectionSocket: TSocket = INVALID_SOCKET); overload; virtual;
       Procedure SelectData(FullCollectionName: AnsiString;
                            Query: AnsiString;
                            ReturnFieldsSelector: AnsiString;
+                           NoCursorTimeout: Boolean;
                            OnNewRowFunct: TALMongoDBClientSelectDataOnNewRowFunct;
                            ExtData: Pointer;
                            const ConnectionSocket: TSocket = INVALID_SOCKET); overload; virtual;
@@ -1982,8 +1984,8 @@ begin
   CheckError(setsockopt(aSocketDescriptor,SOL_SOCKET,SO_RCVTIMEO,PAnsiChar(@Value),SizeOf(Value))=SOCKET_ERROR);
 end;
 
-{***********************************************************************************************************************}
-// // http://blogs.technet.com/b/nettracer/archive/2010/06/03/things-that-you-may-want-to-know-about-tcp-keepalives.aspx
+{*******************************************************************************************************************}
+// http://blogs.technet.com/b/nettracer/archive/2010/06/03/things-that-you-may-want-to-know-about-tcp-keepalives.aspx
 procedure TAlBaseMongoDBClient.DoSetKeepAlive(aSocketDescriptor: TSocket; const Value: boolean);
 var aIntBool: integer;
 begin
@@ -2178,7 +2180,8 @@ begin
       //7	         Partial	        Get partial results from a mongos if some shards are down (instead of throwing an error)
       //8-31	     Reserved	        Must be set to 0.
       aFlags := 0;
-      if Queries[aQueriesIndex].flags.TailMonitoring and assigned(OnNewRowFunct) then begin
+      if Queries[aQueriesIndex].flags.TailMonitoring then begin
+        if not assigned(OnNewRowFunct) then raise Exception.Create('OnNewRowFunct is mandatory for tail monitoring');
         aFlags := aFlags or (1 shl 1); // TailableCursor
         aFlags := aFlags or (1 shl 5); // AwaitData
       end;
@@ -2225,8 +2228,7 @@ begin
           aRecAdded := aRecAdded + aNumberReturned;
 
           //loop still the cursorID > 0
-          while (((Queries[aQueriesIndex].flags.TailMonitoring) or
-                  (assigned(OnNewRowFunct))) and
+          while ((not Queries[aQueriesIndex].flags.TailMonitoring) or
                  (not fStopTailMonitoring)) and
                 (aContinue) and
                 (aCursorID <> 0) and
@@ -2260,18 +2262,15 @@ begin
 
         end;
 
-      //sleep for TailMonitoring to not use 100% CPU
-      if ((Queries[aQueriesIndex].flags.TailMonitoring) or
-          (assigned(OnNewRowFunct))) and
-         (not fStopTailMonitoring) and
-         ((Queries[aQueriesIndex].First <= 0) or
-          (aRecAdded < Queries[aQueriesIndex].First)) then sleep(1);
+        //sleep for TailMonitoring to not use 100% CPU
+        if (Queries[aQueriesIndex].flags.TailMonitoring) and
+           (not fStopTailMonitoring) and
+           ((Queries[aQueriesIndex].First <= 0) or
+            (aRecAdded < Queries[aQueriesIndex].First)) then sleep(1);
 
       //loop for the TailMonitoring
-      until ((not Queries[aQueriesIndex].flags.TailMonitoring) and
-             (not assigned(OnNewRowFunct))) or
+      until (not Queries[aQueriesIndex].flags.TailMonitoring) or
             (fStopTailMonitoring) or
-            (aCursorID = 0) or
             ((Queries[aQueriesIndex].First > 0) and
              (aRecAdded >= Queries[aQueriesIndex].First));
 
@@ -3047,8 +3046,8 @@ begin
         //7	         Partial	        Get partial results from a mongos if some shards are down (instead of throwing an error)
         //8-31	     Reserved	        Must be set to 0.
         aFlags := 0;
-        if Queries[aQueriesIndex].flags.TailMonitoring and assigned(OnNewRowFunct) then
-          raise EAlMongoDBClientException.Create('TailMonitoring work only with TAlMongoDBClient', 0 {aErrorCode}, false {aCloseConnection});
+        if Queries[aQueriesIndex].flags.TailMonitoring then
+          raise EAlMongoDBClientException.Create('Tail monitoring work only with TAlMongoDBClient', 0 {aErrorCode}, false {aCloseConnection});
         if Queries[aQueriesIndex].flags.SlaveOk then aFlags := aFlags or (1 shl 2);
         if Queries[aQueriesIndex].flags.NoCursorTimeout then aFlags := aFlags or (1 shl 4);
         if Queries[aQueriesIndex].flags.Partial then aFlags := aFlags or (1 shl 7);
@@ -3168,6 +3167,7 @@ Procedure TAlMongoDBConnectionPoolClient.SelectData(FullCollectionName: AnsiStri
                                                     ReturnFieldsSelector: AnsiString;
                                                     Skip: integer;
                                                     First: Integer;
+                                                    NoCursorTimeout: Boolean;
                                                     OnNewRowFunct: TALMongoDBClientSelectDataOnNewRowFunct;
                                                     ExtData: Pointer;
                                                     const ConnectionSocket: TSocket = INVALID_SOCKET);
@@ -3179,6 +3179,7 @@ begin
   aQuery.ReturnFieldsSelector := ReturnFieldsSelector;
   aQuery.Skip := Skip;
   aQuery.First := First;
+  aQuery.flags.NoCursorTimeout := NoCursorTimeout;
   SelectData(aQuery,
              OnNewRowFunct,
              ExtData,
@@ -3189,6 +3190,7 @@ end;
 Procedure TAlMongoDBConnectionPoolClient.SelectData(FullCollectionName: AnsiString;
                                                     Query: AnsiString;
                                                     ReturnFieldsSelector: AnsiString;
+                                                    NoCursorTimeout: Boolean;
                                                     OnNewRowFunct: TALMongoDBClientSelectDataOnNewRowFunct;
                                                     ExtData: Pointer;
                                                     const ConnectionSocket: TSocket = INVALID_SOCKET);
@@ -3198,6 +3200,7 @@ begin
              ReturnFieldsSelector,
              0, // skip
              0, // first
+             NoCursorTimeout,
              OnNewRowFunct,
              ExtData,
              ConnectionSocket);
@@ -3824,6 +3827,7 @@ begin
   aQuery.Query := fQuery;
   aQuery.ReturnFieldsSelector := fReturnFieldsSelector;
   aQuery.flags.TailMonitoring := True;
+  aQuery.flags.NoCursorTimeout := true; // because if the doEvent is too long then the cursor will timeout
 
   //loop still not terminated
   while not Terminated do begin

@@ -597,6 +597,11 @@ Procedure ALJSONToTStrings(const aJsonNode: TAlJsonNode;
                            Const aNullStr: AnsiString = 'null';
                            Const aTrueStr: AnsiString = 'true';
                            Const aFalseStr: AnsiString = 'false'); overload;
+procedure ALTStringsToJson(const aLst: TALStrings;
+                           aJsonNode: TALJSONNode;
+                           Const aPath: AnsiString = '';
+                           Const aNameToLowerCase: boolean = false;
+                           Const aNullStr: AnsiString = 'null');
 
 Procedure ALJSONToXML(aJSONNode: TALJsonNode;
                       aXMLNode: TALXmlNode;
@@ -4317,19 +4322,6 @@ begin
                                      aContainChilds := True;
                                    end;
 
-    aALJsonDocument.OnParseStartDocument := procedure (Sender: TObject)
-                                            begin
-                                              aContainChilds := False;
-                                            end;
-
-    aALJsonDocument.OnParseEndDocument := procedure (Sender: TObject)
-                                          begin
-                                            if aPath <> '' then begin
-                                              if not aContainChilds then aLst.Add(aPath + aLst.NameValueSeparator + '{}');
-                                              aContainChilds := true;
-                                            end;
-                                          end;
-
     aALJsonDocument.onParseStartObject := procedure (Sender: TObject; const Path: AnsiString; const Name: AnsiString)
                                           begin
                                             aContainChilds := False;
@@ -4337,7 +4329,7 @@ begin
 
     aALJsonDocument.onParseEndObject := procedure (Sender: TObject; const Path: AnsiString; const Name: AnsiString)
                                         begin
-                                          if not aContainChilds then aLst.Add(aPath+ Path + aLst.NameValueSeparator + '{}');
+                                          if (not aContainChilds) and (aPath + Path <> ''{Path = '' mean it's the root object}) then aLst.Add(aPath+ Path + aLst.NameValueSeparator + '{}');
                                           aContainChilds := True;
                                         end;
 
@@ -4348,7 +4340,7 @@ begin
 
     aALJsonDocument.onParseEndArray := procedure (Sender: TObject; const Path: AnsiString; const Name: AnsiString)
                                        begin
-                                        if not aContainChilds then aLst.Add(aPath+ Path + aLst.NameValueSeparator + '[]');
+                                         if not aContainChilds then aLst.Add(aPath+ Path + aLst.NameValueSeparator + '[]');
                                          aContainChilds := True;
                                        end;
 
@@ -4392,7 +4384,10 @@ begin
     for I := 0 to aJsonNode.ChildNodes.Count - 1 do begin
 
       if aJsonNode.NodeType = ntArray then aTmpPath := aPath + '[' + alinttostr(i) + ']'
-      else aTmpPath := aPath + alIfThen(aPath <> '', '.', '') + aJsonNode.ChildNodes[i].NodeName;
+      else begin
+        if aJsonNode.ChildNodes[i].NodeName = '' then raise Exception.Create('Nodename can not be empty');
+        aTmpPath := aPath + alIfThen(aPath <> '', '.', '') + aJsonNode.ChildNodes[i].NodeName;
+      end;
 
       case aJsonNode.ChildNodes[i].NodeType of
 
@@ -4424,7 +4419,7 @@ begin
       end;
     end;
   end
-  else begin
+  else if (aPath <> ''{aPath = '' mean it's the root object}) then begin
     if      aJsonNode.NodeType = ntArray  then aLst.Add(aPath + aLst.NameValueSeparator + '[]')
     else if aJsonNode.NodeType = ntObject then aLst.Add(aPath + aLst.NameValueSeparator + '{}');
   end;
@@ -4443,6 +4438,109 @@ begin
                    aNullStr,
                    aTrueStr,
                    aFalseStr)
+end;
+
+{************************************************}
+procedure ALTStringsToJson(const aLst: TALStrings;
+                           aJsonNode: TALJSONNode;
+                           Const aPath: AnsiString = '';
+                           Const aNameToLowerCase: boolean = false;
+                           Const aNullStr: AnsiString = 'null');
+
+var aIndex: Integer;
+    aNames:  TALStringList;
+    aCurrJsonNode, aTmpJsonNode: TALJSONNode;
+    i, j: integer;
+
+begin
+
+  // create list of the part of name,
+  // from "aggregated_data.properties.types[3].translations.usa" =>
+  //   aggregated_data
+  //   properties
+  //   types
+  //   [3]
+  //   translations
+  //   usa
+  aNames := TALStringList.Create;
+  try
+
+    //init aNames.linebreak
+    aNames.LineBreak := '.';
+
+    // scroll the aLst
+    for i := 0 to aLst.Count - 1 do begin
+
+      //if it's contain path
+      if (aPath = '') or
+         (alposExIgnoreCase(aPath + '.',aLst.Names[i]) = 1) then begin
+
+        // path.aggregated_data.properties.types[3].translations.usa =>
+        //   aggregated_data
+        //   properties
+        //   types
+        //   [3]
+        //   translations
+        //   usa
+        if (aPath <> '') then aNames.Text := ALStringReplace(ALStringReplace(aLst.Names[i],
+                                                                             aPath + '.',
+                                                                             '',
+                                                                             [rfIgnoreCase]),
+                                                             '[',
+                                                             '.[',
+                                                             [rfReplaceAll])
+        else aNames.Text := ALStringReplace(aLst.Names[i],
+                                            '[',
+                                            '.[',
+                                            [rfReplaceAll]);
+
+        //loop on all the name
+        aCurrJsonNode := aJsonNode;
+        for j := 0 to aNames.Count - 1 do begin
+
+          //if we are in array
+          if aCurrJsonNode.NodeType = ntArray then begin
+            if (length(aNames[j]) <= 2) or
+               (aNames[j][1] <> '[') or
+               (aNames[j][length(aNames[j])] <> ']') or
+               (not ALTryStrToInt(ALCopyStr(aNames[j], 2, Length(aNames[j]) - 2), aIndex)) then raise EALException.Create('Wrong path: "'+aLst.Names[i]+'"');
+            while aIndex > aCurrJsonNode.ChildNodes.Count - 1 do begin
+              if j = aNames.Count - 1 then aCurrJsonNode.AddChild(ntText)
+              else if (aNames[j+1] <> '') and
+                      (aNames[j+1][1] = '[') then aCurrJsonNode := aCurrJsonNode.AddChild(ntarray)
+              else aCurrJsonNode := aCurrJsonNode.AddChild(ntObject);
+            end;
+            aCurrJsonNode := aCurrJsonNode.ChildNodes[aIndex];
+          end
+
+          //if we are not in array
+          else begin
+            aTmpJsonNode := aCurrJsonNode.ChildNodes.FindNode(ALLowerCase(aNames[j]));
+            if not assigned(aTmpJsonNode) then begin
+              if j = aNames.Count - 1 then aCurrJsonNode := aCurrJsonNode.AddChild(alifThen(aNameToLowerCase, allowercase(aNames[j]), aNames[j]), ntText)
+              else if (aNames[j+1] <> '') and
+                      (aNames[j+1][1] = '[') then aCurrJsonNode := aCurrJsonNode.AddChild(alifThen(aNameToLowerCase, allowercase(aNames[j]), aNames[j]), ntarray)
+              else aCurrJsonNode := aCurrJsonNode.AddChild(alifThen(aNameToLowerCase, allowercase(aNames[j]), aNames[j]), ntObject);
+            end
+            else aCurrJsonNode := aTmpJsonNode;
+          end;
+
+          //set the value
+          if J = aNames.Count - 1 then begin
+            if aLst.ValueFromIndex[i] = aNullStr then aCurrJsonNode.Null := true
+            else aCurrJsonNode.Text := aLst.ValueFromIndex[i];
+          end;
+
+        end;
+
+      end;
+
+    end;
+
+  finally
+    aNames.Free;
+  end;
+
 end;
 
 {*******************************************}
