@@ -475,10 +475,10 @@ end;
 procedure TALWinInetHTTPClient.Connect;
 
   {---------------------------------------------}
-  Function InternalGetProxyServerName: PAnsiChar;
+  Function InternalGetProxyServerName: AnsiString;
   Begin
-    If (ProxyParams.ProxyServer = '') then result := nil
-    else result := PAnsiChar(ProxyParams.ProxyServer + ':' + ALIntToStr(ProxyParams.ProxyPort));
+    If (ProxyParams.ProxyServer = '') then result := ''
+    else result := ProxyParams.ProxyServer + ':' + ALIntToStr(ProxyParams.ProxyPort);
   end;
 
   {-----------------------------------------}
@@ -504,7 +504,8 @@ const AccessTypeArr: Array[TALWinInetHttpInternetOpenAccessType] of DWord = (INT
                                                                              INTERNET_OPEN_TYPE_PROXY);
 
 var InternetSetStatusCallbackResult: PFNInternetStatusCallback;
-
+    ProxyStr: AnsiString;
+    ProxyPtr: PAnsiChar;
 begin
   { Yes, but what if we're connected to a different Host/Port?? }
   { So take advantage of a cached handle, we'll assume that
@@ -515,10 +516,17 @@ begin
   { Also, could switch to new API introduced in IE4/Preview2}
   if InternetAttemptConnect(0) <> ERROR_SUCCESS then {$IF CompilerVersion >= 23}{Delphi XE2}System.{$IFEND}SysUtils.Abort;
 
+  ProxyStr := InternalGetProxyServerName;
+  if ProxyStr <> '' then begin
+    ProxyPtr := PAnsiChar(ProxyStr);
+  end else begin
+    ProxyPtr := nil;
+  end;
+
   {init FInetRoot}
   FInetRoot := InternetOpenA(PAnsiChar(RequestHeader.UserAgent),
                              AccessTypeArr[FAccessType],
-                             InternalGetProxyServerName,
+                             ProxyPtr,
                              InternalGetProxyBypass,
                              InternalGetInternetOpenFlags);
   CheckError(not Assigned(FInetRoot));
