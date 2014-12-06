@@ -4449,6 +4449,7 @@ procedure ALTStringsToJson(const aLst: TALStrings;
 
 var aIndex: Integer;
     aNames:  TALStringList;
+    aLowerName: AnsiString;
     aCurrJsonNode, aTmpJsonNode: TALJSONNode;
     i, j: integer;
 
@@ -4515,12 +4516,13 @@ begin
 
           //if we are not in array
           else begin
-            aTmpJsonNode := aCurrJsonNode.ChildNodes.FindNode(ALLowerCase(aNames[j]));
+            aLowerName := alifThen(aNameToLowerCase, allowercase(aNames[j]), aNames[j]);
+            aTmpJsonNode := aCurrJsonNode.ChildNodes.FindNode(aLowerName);
             if not assigned(aTmpJsonNode) then begin
-              if j = aNames.Count - 1 then aCurrJsonNode := aCurrJsonNode.AddChild(alifThen(aNameToLowerCase, allowercase(aNames[j]), aNames[j]), ntText)
+              if j = aNames.Count - 1 then aCurrJsonNode := aCurrJsonNode.AddChild(aLowerName, ntText)
               else if (aNames[j+1] <> '') and
-                      (aNames[j+1][1] = '[') then aCurrJsonNode := aCurrJsonNode.AddChild(alifThen(aNameToLowerCase, allowercase(aNames[j]), aNames[j]), ntarray)
-              else aCurrJsonNode := aCurrJsonNode.AddChild(alifThen(aNameToLowerCase, allowercase(aNames[j]), aNames[j]), ntObject);
+                      (aNames[j+1][1] = '[') then aCurrJsonNode := aCurrJsonNode.AddChild(aLowerName, ntarray)
+              else aCurrJsonNode := aCurrJsonNode.AddChild(aLowerName, ntObject);
             end
             else aCurrJsonNode := aTmpJsonNode;
           end;
@@ -4597,8 +4599,8 @@ begin
                    else result := 'false';
     nstDateTime:   result := ALFormatDateTime('''ISODate("''yyyy''-''mm''-''dd''T''hh'':''nn'':''ss''.''zzz''Z")''', ALStrToDateTime(aValue, aFormatSettings), ALDefaultFormatSettings);
     nstJavascript: result := aValue;
-    nstInt32:      result := 'NumberInt(' + ALIntToStr(ALstrToInt64(aValue)) + ')';
-    nstInt64:      result := 'NumberLong(' + ALIntToStr(ALstrToInt(aValue)) + ')';
+    nstInt32:      result := 'NumberInt(' + ALIntToStr(ALstrToInt(aValue)) + ')';
+    nstInt64:      result := 'NumberLong(' + ALIntToStr(ALstrToInt64(aValue)) + ')';
     nstNull:       result := 'null';
     nstObject:     raise Exception.Create('Unsupported Node SubType');
     nstArray:      raise Exception.Create('Unsupported Node SubType');

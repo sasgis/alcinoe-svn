@@ -464,6 +464,8 @@ function  ALIntToHex(Value: UInt64; Digits: Integer): AnsiString; overload;
 {$ENDIF}
 Function  ALBinToHex(const aBin: AnsiString): AnsiString;
 Function  ALHexToBin(const aHex: AnsiString): AnsiString;
+function  ALIntToBit(value: Integer; digits: integer): ansistring;
+function  AlBitToInt(Value: ansiString): Integer;
 Function  ALIsInt64 (const S: AnsiString): Boolean;
 Function  ALIsInteger (const S: AnsiString): Boolean;
 Function  ALIsSmallInt (const S: AnsiString): Boolean;
@@ -509,7 +511,12 @@ function  ALIncludeTrailingPathDelimiter(const S: AnsiString): AnsiString;
 function  ALExcludeTrailingPathDelimiter(const S: AnsiString): AnsiString;
 procedure ALMove(const Source; var Dest; Count: {$if CompilerVersion >= 23}{Delphi XE2}NativeInt{$ELSE}Integer{$IFEND});
 procedure ALStrMove(const Source: PAnsiChar; var Dest: PAnsiChar; Count: {$if CompilerVersion >= 23}{Delphi XE2}NativeInt{$ELSE}Integer{$IFEND});
-function  ALCopyStr(const aSourceString: AnsiString; aStart, aLength: Integer): AnsiString;
+function  ALCopyStr(const aSourceString: AnsiString; aStart, aLength: Integer): AnsiString; overload;
+function  ALCopyStr(const aSourceString: AnsiString;
+                    const aStartStr: AnsiString;
+                    const aEndStr: AnsiString;
+                    const aOffset: integer = 1;
+                    const aRaiseExceptionIfNotFound: Boolean = True): AnsiString; overload;
 function  ALStringReplace(const S, OldPattern, NewPattern: AnsiString; Flags: TReplaceFlags): AnsiString;
 function  ALFastTagReplace(const SourceString, TagStart, TagEnd: AnsiString;
                            ReplaceProc: TALHandleTagFunct;
@@ -6034,10 +6041,7 @@ end;
 {*******************************************************}
 Function  ALBinToHex(const aBin: AnsiString): AnsiString;
 begin
-  if aBin = '' then begin
-    result := '';
-    exit;
-  end;
+  if aBin = '' then raise Exception.Create('Bad binary value');
   setlength(result,length(aBin) * 2);
   BintoHex(@aBin[1],pansiChar(result),length(aBin));
 end;
@@ -6045,12 +6049,42 @@ end;
 {*******************************************************}
 Function  ALHexToBin(const aHex: AnsiString): AnsiString;
 begin
-  if (aHex = '') or (length(aHex) mod 2 <> 0) then begin
-    result := '';
-    exit;
-  end;
+  if (aHex = '') or (length(aHex) mod 2 <> 0) then raise Exception.Create('Bad hex value');
   setlength(result,length(aHex) div 2);
-  if HexToBin(PansiChar(aHex),pansiChar(result),length(result)) <> length(result) then result := '';
+  if HexToBin(PansiChar(aHex),pansiChar(result),length(result)) <> length(result) then raise Exception.Create('Bad hex value');
+end;
+
+{***************************************************************}
+function ALIntToBit(value: integer; digits: integer): ansistring;
+begin
+  result := StringOfChar (ansiChar('0'), digits) ;
+  while value > 0 do begin
+    if (value and 1) = 1 then
+      result[digits] := '1';
+    dec(digits) ;
+    value := value shr 1;
+  end;
+end;
+
+{**********************************************}
+function ALBitToInt(Value: ansiString): integer;
+var i: Integer;
+begin
+
+  //init result
+  Result:=0;
+
+  //remove leading zeroes
+  i := 1;
+  while (i <= length(Value)) and (Value[i] = '0') do inc(i);
+  if i > length(Value) then exit;
+  Value := ALCopyStr(Value,I,Maxint);
+
+  //do the conversion
+  for i:=Length(Value) downto 1 do
+   if Value[i]='1' then
+    Result:=Result+(1 shl (Length(Value)-i));
+
 end;
 
 {*************************************************}
@@ -8192,6 +8226,36 @@ begin
 
   SetLength(Result,aLength);
   ALMove(aSourceString[aStart], Result[1], aLength);
+end;
+
+{**************************************************}
+function  ALCopyStr(const aSourceString: AnsiString;
+                    const aStartStr: AnsiString;
+                    const aEndStr: AnsiString;
+                    const aOffset: integer = 1;
+                    const aRaiseExceptionIfNotFound: Boolean = True): AnsiString;
+var aLowSourceString: AnsiString;
+    P1, P2: integer;
+begin
+  aLowSourceString := ALLowerCase(aSourceString);
+  P1 := AlPosEx(ALLowerCase(aStartStr), aLowSourceString, aOffset);
+  if P1 <= 0 then begin
+    if aRaiseExceptionIfNotFound then Raise EALException.Create('Can not find' + ALIfThen(aOffset > 1, ' after offset ' + ALIntToStr(aOffset)) + ' the text ' + aStartStr + ' in ' + aSourceString)
+    else begin
+      result := '';
+      exit;
+    end;
+  end;
+  Inc(P1, Length(aStartStr));
+  P2 := AlPosEx(ALLowerCase(aEndStr), aLowSourceString, P1);
+  if P2 <= 0 then begin
+    if aRaiseExceptionIfNotFound then Raise EALException.Create('Can not find' + ALIfThen(aOffset > 1, ' after offset ' + ALIntToStr(aOffset)) + ' the text ' + aEndStr + ' in ' + aSourceString)
+    else begin
+      result := '';
+      exit;
+    end;
+  end;
+  result := ALCopyStr(aSourceString, P1, P2 - P1);
 end;
 
 {*******************************************************************************************}
