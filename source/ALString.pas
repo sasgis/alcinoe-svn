@@ -466,7 +466,11 @@ Function  ALBinToHex(const aBin: AnsiString): AnsiString;
 Function  ALHexToBin(const aHex: AnsiString): AnsiString;
 function  ALIntToBit(value: Integer; digits: integer): ansistring;
 function  AlBitToInt(Value: ansiString): Integer;
+{$IF CompilerVersion >= 22} {Delphi XE}
 function  AlInt2BaseN(NumIn: UInt64; const charset: array of ansiChar): ansistring;
+{$ELSE}
+function  AlInt2BaseN(NumIn: Word; const charset: array of ansiChar): ansistring;
+{$IFEND}
 function  AlBaseN2Int(const Str: ansiString; const charset: array of ansiChar): UInt64;
 Function  ALIsInt64 (const S: AnsiString): Boolean;
 Function  ALIsInteger (const S: AnsiString): Boolean;
@@ -6090,8 +6094,16 @@ begin
 end;
 
 {********************************************************************************}
-function AlInt2BaseN(NumIn: UInt64; const charset: array of ansiChar): ansistring;
+{$IF CompilerVersion >= 22} {Delphi XE}
+function  AlInt2BaseN(NumIn: UInt64; const charset: array of ansiChar): ansistring;
+{$ELSE}
+function AlInt2BaseN(NumIn: Word; const charset: array of ansiChar): ansistring;
+{$IFEND}
+{$IF CompilerVersion >= 22} {Delphi XE}
 var Remainder: UInt64;
+{$ELSE}
+var Remainder: Word;
+{$IFEND}
     BaseOut: integer;
 begin
 
