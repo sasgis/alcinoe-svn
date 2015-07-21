@@ -466,7 +466,7 @@ Function  ALBinToHex(const aBin: AnsiString): AnsiString;
 Function  ALHexToBin(const aHex: AnsiString): AnsiString;
 function  ALIntToBit(value: Integer; digits: integer): ansistring;
 function  AlBitToInt(Value: ansiString): Integer;
-{$IF CompilerVersion >= 22} {Delphi XE}
+{$IF CompilerVersion >= 23} {Delphi XE2}
 function  AlInt2BaseN(NumIn: UInt64; const charset: array of ansiChar): ansistring;
 {$ELSE}
 function  AlInt2BaseN(NumIn: Word; const charset: array of ansiChar): ansistring;
@@ -6094,12 +6094,12 @@ begin
 end;
 
 {********************************************************************************}
-{$IF CompilerVersion >= 22} {Delphi XE}
+{$IF CompilerVersion >= 23} {Delphi XE2}
 function  AlInt2BaseN(NumIn: UInt64; const charset: array of ansiChar): ansistring;
 {$ELSE}
 function AlInt2BaseN(NumIn: Word; const charset: array of ansiChar): ansistring;
 {$IFEND}
-{$IF CompilerVersion >= 22} {Delphi XE}
+{$IF CompilerVersion >= 23} {Delphi XE2}
 var Remainder: UInt64;
 {$ELSE}
 var Remainder: Word;
@@ -7680,7 +7680,7 @@ end;
 function ALPosEx(const SubStr, S: AnsiString; Offset: Integer = 1): Integer;
 begin
   {$IFDEF UNICODE}
-  Result := System.AnsiStrings.PosEx(SubStr, S, Offset);
+  Result := {$IF CompilerVersion >= 23}System.{$IFEND}AnsiStrings.PosEx(SubStr, S, Offset);
   {$ELSE}
   Result := PosEx(SubStr, S, Offset);
   {$ENDIF}
@@ -7875,7 +7875,7 @@ end; {AnsiPosExIC}
 function AlUpperCase(const S: AnsiString): AnsiString;
 begin
   {$IFDEF UNICODE}
-  Result := System.AnsiStrings.UpperCase(S);
+  Result := {$IF CompilerVersion >= 23}{Delphi XE2}System.{$IFEND}AnsiStrings.UpperCase(S);
   {$ELSE}
   Result := UpperCase(S);
   {$ENDIF}
@@ -7885,7 +7885,7 @@ end;
 function AlLowerCase(const S: AnsiString): AnsiString;
 begin
   {$IFDEF UNICODE}
-  Result := System.AnsiStrings.LowerCase(S);
+  Result := {$IF CompilerVersion >= 23}{Delphi XE2}System.{$IFEND}AnsiStrings.LowerCase(S);
   {$ELSE}
   Result := LowerCase(S);
   {$ENDIF}
@@ -7895,7 +7895,7 @@ end;
 function ALCompareStr(const S1, S2: AnsiString): Integer;
 begin
   {$IFDEF UNICODE}
-  Result := System.AnsiStrings.CompareStr(S1, S2);
+  Result := {$IF CompilerVersion >= 23}{Delphi XE2}System.{$IFEND}AnsiStrings.CompareStr(S1, S2);
   {$ELSE}
   Result := CompareStr(S1, S2);
   {$ENDIF}
@@ -7905,7 +7905,7 @@ end;
 function ALSameStr(const S1, S2: AnsiString): Boolean;
 begin
   {$IFDEF UNICODE}
-  Result := System.AnsiStrings.SameStr(S1, S2);
+  Result := {$IF CompilerVersion >= 23}{Delphi XE2}System.{$IFEND}AnsiStrings.SameStr(S1, S2);
   {$ELSE}
     {$IF CompilerVersion >= 18.5} {Delphi 2007}
     Result := SameStr(S1, S2);
@@ -7919,7 +7919,7 @@ end;
 function ALCompareText(const S1, S2: AnsiString): Integer;
 Begin
   {$IFDEF UNICODE}
-  Result := System.AnsiStrings.CompareText(S1, S2);
+  Result := {$IF CompilerVersion >= 23}{Delphi XE2}System.{$IFEND}AnsiStrings.CompareText(S1, S2);
   {$ELSE}
   Result := CompareText(S1, S2);
   {$ENDIF}
@@ -7929,7 +7929,7 @@ end;
 function ALSameText(const S1, S2: AnsiString): Boolean;
 begin
   {$IFDEF UNICODE}
-  Result := System.AnsiStrings.SameText(S1, S2);
+  Result := {$IF CompilerVersion >= 23}{Delphi XE2}System.{$IFEND}AnsiStrings.SameText(S1, S2);
   {$ELSE}
   Result := SameText(S1, S2);
   {$ENDIF}
@@ -7939,7 +7939,7 @@ end;
 function  ALTrim(const S: AnsiString): AnsiString;
 begin
   {$IFDEF UNICODE}
-  Result := System.AnsiStrings.Trim(S);
+  Result := {$IF CompilerVersion >= 23}{Delphi XE2}System.{$IFEND}AnsiStrings.Trim(S);
   {$ELSE}
   Result := Trim(S);
   {$ENDIF}
@@ -7949,7 +7949,7 @@ end;
 function  ALTrimLeft(const S: AnsiString): AnsiString;
 begin
   {$IFDEF UNICODE}
-  Result := System.AnsiStrings.TrimLeft(S);
+  Result := {$IF CompilerVersion >= 23}{Delphi XE2}System.{$IFEND}AnsiStrings.TrimLeft(S);
   {$ELSE}
   Result := TrimLeft(S);
   {$ENDIF}
@@ -7959,7 +7959,7 @@ end;
 function  ALTrimRight(const S: AnsiString): AnsiString;
 begin
   {$IFDEF UNICODE}
-  Result := System.AnsiStrings.TrimRight(S);
+  Result := {$IF CompilerVersion >= 23}{Delphi XE2}System.{$IFEND}AnsiStrings.TrimRight(S);
   {$ELSE}
   Result := TrimRight(S);
   {$ENDIF}
@@ -8050,7 +8050,7 @@ end;
 function  ALExtractFilePath(const FileName: AnsiString): AnsiString;
 begin
   {$IFDEF UNICODE}
-  Result := System.AnsiStrings.ExtractFilePath(FileName);
+  Result := {$IF CompilerVersion >= 23}{Delphi XE2}System.{$IFEND}AnsiStrings.ExtractFilePath(FileName);
   {$ELSE}
   Result := ExtractFilePath(FileName);
   {$ENDIF}
@@ -8060,7 +8060,7 @@ end;
 function  ALExtractFileDir(const FileName: AnsiString): AnsiString;
 begin
   {$IFDEF UNICODE}
-  Result := System.AnsiStrings.ExtractFileDir(FileName);
+  Result := {$IF CompilerVersion >= 23}{Delphi XE2}System.{$IFEND}AnsiStrings.ExtractFileDir(FileName);
   {$ELSE}
   Result := ExtractFileDir(FileName);
   {$ENDIF}
@@ -8070,7 +8070,7 @@ end;
 function  ALExtractFileDrive(const FileName: AnsiString): AnsiString;
 begin
   {$IFDEF UNICODE}
-  Result := System.AnsiStrings.ExtractFileDrive(FileName);
+  Result := {$IF CompilerVersion >= 23}{Delphi XE2}System.{$IFEND}AnsiStrings.ExtractFileDrive(FileName);
   {$ELSE}
   Result := ExtractFileDrive(FileName);
   {$ENDIF}
@@ -8080,7 +8080,7 @@ end;
 function  ALExtractFileName(const FileName: AnsiString): AnsiString;
 begin
   {$IFDEF UNICODE}
-  Result := System.AnsiStrings.ExtractFileName(FileName);
+  Result := {$IF CompilerVersion >= 23}{Delphi XE2}System.{$IFEND}AnsiStrings.ExtractFileName(FileName);
   {$ELSE}
   Result := ExtractFileName(FileName);
   {$ENDIF}
@@ -8090,7 +8090,7 @@ end;
 function  ALExtractFileExt(const FileName: AnsiString): AnsiString;
 begin
   {$IFDEF UNICODE}
-  Result := System.AnsiStrings.ExtractFileExt(FileName);
+  Result := {$IF CompilerVersion >= 23}{Delphi XE2}System.{$IFEND}AnsiStrings.ExtractFileExt(FileName);
   {$ELSE}
   Result := ExtractFileExt(FileName);
   {$ENDIF}
