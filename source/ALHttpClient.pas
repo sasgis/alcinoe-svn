@@ -500,11 +500,11 @@ Function  AlInternetCrackUrl(var Url: AnsiString; // if true return UrlPath
                              var Anchor: AnsiString;
                              Query: TALStrings): Boolean; overload;
 Function  AlRemoveAnchorFromUrl(aUrl: AnsiString; Var aAnchor: AnsiString): AnsiString; overload;
-Function  AlRemoveAnchorFromUrl(aUrl: AnsiString): AnsiString; overload;
-function  AlCombineUrl(RelativeUrl, BaseUrl: AnsiString): AnsiString; overload;
-Function  AlCombineUrl(RelativeUrl,
-                       BaseUrl,
-                       Anchor: AnsiString;
+Function  AlRemoveAnchorFromUrl(const aUrl: AnsiString): AnsiString; overload;
+function  AlCombineUrl(const RelativeUrl, BaseUrl: AnsiString): AnsiString; overload;
+Function  AlCombineUrl(const RelativeUrl,
+                             BaseUrl,
+                             Anchor: AnsiString;
                        Query: TALStrings): AnsiString; overload;
 
 const
@@ -548,8 +548,9 @@ function ALIPV6StrTobinary(aIPv6: AnsiString): TALIPv6Binary;
 function ALBinaryToIPv6Str(aIPv6: TALIPv6Binary): ansiString;
 function ALBinaryStrToIPv6Binary(aIPV6BinaryStr: ansiString): TALIPv6Binary;
 function ALIPv6EndOfRange(aStartIPv6: TALIPv6Binary; aMaskLength: integer): TALIPv6Binary;
-function ALIPv6HighestPartToInt64(aIPv6: TALIPv6Binary): UInt64;
-function ALIPv6LowestPartToInt64(aIPv6: TALIPv6Binary): UInt64;
+procedure ALIPv6SplitParts(aIPv6: TALIPv6Binary;
+                           var aLowestPart: UInt64;
+                           var aHigestPart: UInt64);
 
 Const
   cALHTTPCLient_MsgInvalidURL         = 'Invalid url ''%s'' - only supports ''http'' and ''https'' schemes';
@@ -1701,15 +1702,15 @@ begin
   Result := aUrl;
 end;
 
-{***********************************************************}
-Function AlRemoveAnchorFromUrl(aUrl: AnsiString): AnsiString;
+{*****************************************************************}
+Function AlRemoveAnchorFromUrl(const aUrl: AnsiString): AnsiString;
 var aAnchor: AnsiString;
 begin
   result := AlRemoveAnchorFromUrl(aUrl,aAnchor);
 end;
 
-{******************************************************************}
-function AlCombineUrl(RelativeUrl, BaseUrl: AnsiString): AnsiString;
+{************************************************************************}
+function AlCombineUrl(const RelativeUrl, BaseUrl: AnsiString): AnsiString;
 var Size: Dword;
     Buffer: AnsiString;
 begin
@@ -1731,10 +1732,10 @@ begin
   end;
 end;
 
-{*********************************}
-Function  AlCombineUrl(RelativeUrl,
-                       BaseUrl,
-                       Anchor: AnsiString;
+{***************************************}
+Function  AlCombineUrl(const RelativeUrl,
+                             BaseUrl,
+                             Anchor: AnsiString;
                        Query: TALStrings): AnsiString;
 Var S1 : AnsiString;
     {$IF CompilerVersion >= 18.5}
@@ -2251,6 +2252,7 @@ var aBitsCount: integer;
     aByteNumber: integer;
     aBitNumber: integer;
     i: byte;
+
 begin
   if (aMaskLength < 1) or
      (aMaskLength > 128) then raise EALException.Create('Wrong value for mask length IPv6: ' + ALIntToStr(aMaskLength));
@@ -2271,36 +2273,28 @@ begin
   end;
 end;
 
-{**************************************************************}
-function ALIPv6HighestPartToInt64(aIPv6: TALIPv6Binary): UInt64;
+{**********************************************}
+procedure ALIPv6SplitParts(aIPv6: TALIPv6Binary;
+                           var aLowestPart: UInt64;
+                           var aHigestPart: UInt64);
 var aIntRec: Int64Rec;
     i: integer;
 begin
-  if Length(aIPv6) <> 16 then raise EALException.Create('Wrong length for IPv6 binary data, 16 is expected, length is: ' + ALIntToStr(Length(aIPv6)));
-
+  // get the Lowest Part
+  aIntRec.Lo := 0;
+  aIntRec.Hi := 0;
   for i := 8 downto 1 do begin
     aIntRec.Bytes[8 - i] := Ord(aIPv6[i]);
   end;
+  aLowestPart := UInt64(aIntRec);
 
-  // it should be UInt64 of course, to handle the case when all the bytes are
-  // set to 255 (so all the 64 bits are set to 1)
-  result := UInt64(aIntRec);
-end;
-
-{*************************************************************}
-function ALIPv6LowestPartToInt64(aIPv6: TALIPv6Binary): UInt64;
-var aIntRec: Int64Rec;
-    i: integer;
-begin
-  if Length(aIPv6) <> 16 then raise EALException.Create('Wrong length for IPv6 binary data, 16 is expected, length is: ' + ALIntToStr(Length(aIPv6)));
-
+  // get the Higest Part
+  aIntRec.Lo := 0;
+  aIntRec.Hi := 0;
   for i := 16 downto 9 do begin
     aIntRec.Bytes[16 - i] := Ord(aIPv6[i]);
   end;
-
-  // it should be UInt64 of course, to handle the case when all the bytes are
-  // set to 255 (so all the 64 bits are set to 1)
-  result := UInt64(aIntRec);
+  aHigestPart := UInt64(aIntRec);
 end;
 
 {***********************************************************************************}

@@ -143,6 +143,11 @@ Type
     function  GetConnected: Boolean;
     function  GetInTransaction: Boolean;
   Protected
+    function loadCachedData(const Key: AnsiString;
+                            var DataStr: AnsiString): Boolean; virtual;
+    Procedure SaveDataToCache(const Key: ansiString;
+                              const CacheThreshold: integer;
+                              const DataStr: ansiString); virtual;
     procedure CheckAPIError(Error: Boolean);
     Function  GetFieldValue(aFieldValue: PAnsiChar;
                             aFieldType: TMysqlFieldTypes;
@@ -150,9 +155,9 @@ Type
                             aFormatSettings: TALFormatSettings): AnsiString;
     procedure initObject; virtual;
     procedure OnSelectDataDone(Query: TALMySQLClientSelectDataQUERY;
-                               TimeTaken: Integer); virtual;
+                               TimeTaken: double); virtual;
     procedure OnUpdateDataDone(Query: TALMySQLClientUpdateDataQUERY;
-                               TimeTaken: Integer); virtual;
+                               TimeTaken: double); virtual;
   Public
     Constructor Create(ApiVer: TALMySqlVersion_API;
                        const lib: AnsiString = 'libmysql.dll'); overload; virtual;
@@ -248,6 +253,11 @@ Type
     FNullString: AnsiString;
     fMySQLFormatSettings: TALFormatSettings;
   Protected
+    function loadCachedData(const Key: AnsiString;
+                            var DataStr: AnsiString): Boolean; virtual;
+    Procedure SaveDataToCache(const Key: ansiString;
+                              const CacheThreshold: integer;
+                              const DataStr: ansiString); virtual;
     procedure CheckAPIError(ConnectionHandle: PMySql; Error: Boolean);
     function  GetDataBaseName: AnsiString; virtual;
     function  GetHost: AnsiString; virtual;
@@ -267,9 +277,9 @@ Type
                          Const aOpenConnectionClientFlag: Cardinal = 0;
                          Const aOpenConnectionOptions: TALMySQLOptions = nil); virtual;
     procedure OnSelectDataDone(Query: TALMySQLClientSelectDataQUERY;
-                               TimeTaken: Integer); virtual;
+                               TimeTaken: double); virtual;
     procedure OnUpdateDataDone(Query: TALMySQLClientUpdateDataQUERY;
-                               TimeTaken: Integer); virtual;
+                               TimeTaken: double); virtual;
   Public
     Constructor Create(aHost: AnsiString;
                        aPort: integer;
@@ -371,6 +381,7 @@ uses {$IF CompilerVersion >= 23} {Delphi XE2}
      SysUtils,
      Diagnostics,
      {$IFEND}
+     ALCipher,
      ALWindows;
 
 {*********************************************************************************}
@@ -424,6 +435,21 @@ end;
 function TalMySqlClient.GetInTransaction: Boolean;
 begin
   result := finTransaction;
+end;
+
+{***********************************************************}
+function TalMySqlClient.loadCachedData(const Key: AnsiString;
+                                       var DataStr: AnsiString): Boolean;
+begin
+  result := false; //virtual need to be overriden
+end;
+
+{*************************************************************}
+Procedure TalMySqlClient.SaveDataToCache(const Key: ansiString;
+                                         const CacheThreshold: integer;
+                                         const DataStr: ansiString);
+begin
+  //virtual need to be overriden
 end;
 
 {*****************************************************}
@@ -635,14 +661,14 @@ end;
 
 {*****************************************************************************}
 procedure TalMySqlClient.OnSelectDataDone(Query: TALMySQLClientSelectDataQUERY;
-                                          TimeTaken: Integer);
+                                          TimeTaken: double);
 begin
   // virtual
 end;
 
 {*****************************************************************************}
 procedure TalMySqlClient.OnUpdateDataDone(Query: TALMySQLClientUpdateDataQUERY;
-                                          TimeTaken: Integer);
+                                          TimeTaken: double);
 begin
   // virtual
 end;
@@ -669,6 +695,8 @@ Var aMySqlRes: PMYSQL_RES;
     aXmlDocument: TalXmlDocument;
     aUpdateRowTagByFieldValue: Boolean;
     aStopWatch: TStopWatch;
+    aCacheKey: ansiString;
+    aCacheStr: ansiString;
 
 begin
 
@@ -695,6 +723,36 @@ begin
 
     {loop on all the SQL}
     For aQueriesIndex := 0 to length(Queries) - 1 do begin
+
+      //Handle the CacheThreshold
+      aCacheKey := '';
+      If (Queries[aQueriesIndex].CacheThreshold > 0) and
+         (not assigned(aXmlDocument)) and
+         (((length(Queries) = 1) and
+           (XMLdata.ChildNodes.Count = 0)) or  // else the save will not work
+          (Queries[aQueriesIndex].ViewTag <> '')) then begin
+
+        //try to load from from cache
+        aCacheKey := ALStringHashSHA1(Queries[aQueriesIndex].RowTag + '#' +
+                                      alinttostr(Queries[aQueriesIndex].Skip) + '#' +
+                                      alinttostr(Queries[aQueriesIndex].First) + '#' +
+                                      ALGetFormatSettingsID(FormatSettings) + '#' +
+                                      Queries[aQueriesIndex].SQL);
+        if loadcachedData(aCacheKey, aCacheStr) then begin
+
+          //init the aViewRec
+          if (Queries[aQueriesIndex].ViewTag <> '') then aViewRec := XMLdata.AddChild(Queries[aQueriesIndex].ViewTag)
+          else aViewRec := XMLdata;
+
+          //assign the tmp data to the XMLData
+          aViewRec.LoadFromXML(aCacheStr, true{XmlContainOnlyChildNodes}, false{ClearChildNodes});
+
+          //go to the next loop
+          continue;
+
+        end;
+
+      end;
 
       //start the TstopWatch
       aStopWatch.Reset;
@@ -807,7 +865,18 @@ begin
       //do the OnSelectDataDone
       aStopWatch.Stop;
       OnSelectDataDone(Queries[aQueriesIndex],
-                       aStopWatch.ElapsedMilliseconds);
+                       aStopWatch.Elapsed.TotalMilliseconds);
+
+      //save to the cache
+      If aCacheKey <> '' then begin
+
+        //save the data
+        aViewRec.SaveToXML(aCacheStr, true{SaveOnlyChildNodes});
+        SaveDataToCache(aCacheKey,
+                        Queries[aQueriesIndex].CacheThreshold,
+                        aCacheStr);
+
+      end;
 
     End;
 
@@ -985,7 +1054,7 @@ begin
     //do the OnUpdateDataDone
     aStopWatch.Stop;
     OnUpdateDataDone(Queries[aQueriesIndex],
-                     aStopWatch.ElapsedMilliseconds);
+                     aStopWatch.Elapsed.TotalMilliseconds);
 
   end;
 
@@ -1060,6 +1129,21 @@ end;
 {*******}
 ThreadVar
   vAlMySqlConnectionPoolClientThreadInitRefCount: Integer;
+
+{*************************************************************************}
+function TalMySqlConnectionPoolClient.loadCachedData(const Key: AnsiString;
+                                                     var DataStr: AnsiString): Boolean;
+begin
+  result := false; //virtual need to be overriden
+end;
+
+{***************************************************************************}
+Procedure TalMySqlConnectionPoolClient.SaveDataToCache(const Key: ansiString;
+                                                       const CacheThreshold: integer;
+                                                       const DataStr: ansiString);
+begin
+  //virtual need to be overriden
+end;
 
 {*********************************************************************************************}
 procedure TalMySqlConnectionPoolClient.CheckAPIError(ConnectionHandle: PMySql; Error: Boolean);
@@ -1533,14 +1617,14 @@ end;
 
 {*******************************************************************************************}
 procedure TalMySqlConnectionPoolClient.OnSelectDataDone(Query: TALMySQLClientSelectDataQUERY;
-                                                        TimeTaken: Integer);
+                                                        TimeTaken: double);
 begin
   // virtual
 end;
 
 {*******************************************************************************************}
 procedure TalMySqlConnectionPoolClient.OnUpdateDataDone(Query: TALMySQLClientUpdateDataQUERY;
-                                                        TimeTaken: Integer);
+                                                        TimeTaken: double);
 begin
   // virtual
 end;
@@ -1571,6 +1655,8 @@ Var aMySqlRes: PMYSQL_RES;
     aXmlDocument: TalXmlDocument;
     aUpdateRowTagByFieldValue: Boolean;
     aStopWatch: TStopWatch;
+    aCacheKey: ansiString;
+    aCacheStr: ansiString;
 
 begin
 
@@ -1600,6 +1686,36 @@ begin
 
       //loop on all the SQL
       For aQueriesIndex := 0 to length(Queries) - 1 do begin
+
+        //Handle the CacheThreshold
+        aCacheKey := '';
+        If (Queries[aQueriesIndex].CacheThreshold > 0) and
+           (not assigned(aXmlDocument)) and
+           (((length(Queries) = 1) and
+             (XMLdata.ChildNodes.Count = 0)) or  // else the save will not work
+            (Queries[aQueriesIndex].ViewTag <> '')) then begin
+
+          //try to load from from cache
+          aCacheKey := ALStringHashSHA1(Queries[aQueriesIndex].RowTag + '#' +
+                                        alinttostr(Queries[aQueriesIndex].Skip) + '#' +
+                                        alinttostr(Queries[aQueriesIndex].First) + '#' +
+                                        ALGetFormatSettingsID(FormatSettings) + '#' +
+                                        Queries[aQueriesIndex].SQL);
+          if loadcachedData(aCacheKey, aCacheStr) then begin
+
+            //init the aViewRec
+            if (Queries[aQueriesIndex].ViewTag <> '') then aViewRec := XMLdata.AddChild(Queries[aQueriesIndex].ViewTag)
+            else aViewRec := XMLdata;
+
+            //assign the tmp data to the XMLData
+            aViewRec.LoadFromXML(aCacheStr, true{XmlContainOnlyChildNodes}, false{ClearChildNodes});
+
+            //go to the next loop
+            continue;
+
+          end;
+
+        end;
 
         //start the TstopWatch
         aStopWatch.Reset;
@@ -1712,7 +1828,18 @@ begin
         //do the OnSelectDataDone
         aStopWatch.Stop;
         OnSelectDataDone(Queries[aQueriesIndex],
-                         aStopWatch.ElapsedMilliseconds);
+                         aStopWatch.Elapsed.TotalMilliseconds);
+
+        //save to the cache
+        If aCacheKey <> '' then begin
+
+          //save the data
+          aViewRec.SaveToXML(aCacheStr, true{SaveOnlyChildNodes});
+          SaveDataToCache(aCacheKey,
+                          Queries[aQueriesIndex].CacheThreshold,
+                          aCacheStr);
+
+        end;
 
       End;
 
@@ -1929,7 +2056,7 @@ begin
       //do the OnUpdateDataDone
       aStopWatch.Stop;
       OnUpdateDataDone(Queries[aQueriesIndex],
-                       aStopWatch.ElapsedMilliseconds);
+                       aStopWatch.Elapsed.TotalMilliseconds);
 
     end;
 

@@ -128,7 +128,7 @@ Type
 
   {-------------------------------}
   TalSqlite3Client = Class(Tobject)
-  Private
+  private
     fLibrary: TALSqlite3Library;
     FownLibrary: Boolean;
     fSqlite3: PSQLite3;
@@ -136,17 +136,22 @@ Type
     finTransaction: Boolean;
     function  GetConnected: Boolean;
     function  GetInTransaction: Boolean;
-  Protected
+  protected
+    function loadCachedData(const Key: AnsiString;
+                            var DataStr: AnsiString): Boolean; virtual;
+    Procedure SaveDataToCache(const Key: ansiString;
+                              const CacheThreshold: integer;
+                              const DataStr: ansiString); virtual;
     procedure CheckAPIError(Error: Boolean);
     Function  GetFieldValue(aSqlite3stmt: PSQLite3Stmt;
                             aIndex: Integer;
                             aFormatSettings: TALFormatSettings): AnsiString;
     procedure initObject; virtual;
     procedure OnSelectDataDone(Query: TALSqlite3ClientSelectDataQUERY;
-                               TimeTaken: Integer); virtual;
+                               TimeTaken: Double); virtual;
     procedure OnUpdateDataDone(Query: TALSqlite3ClientUpdateDataQUERY;
-                               TimeTaken: Integer); virtual;
-  Public
+                               TimeTaken: Double); virtual;
+  public
     Constructor Create(const lib: AnsiString = 'sqlite3.dll'; const initializeLib: Boolean = True); overload; virtual;
     Constructor Create(lib: TALSqlite3Library); overload; virtual;
     Destructor Destroy; Override;
@@ -154,8 +159,7 @@ Type
     procedure initialize; //can not be put in the create because config can/must be call prior initialize
     procedure shutdown;   //can not be put in the create because config can/must be call after shutdown
     procedure enable_shared_cache(enable: boolean);
-    function  soft_heap_limit64(n: int64): int64;
-    Procedure Connect(DatabaseName: AnsiString;
+    Procedure Connect(const DatabaseName: AnsiString;
                       const flags: integer = SQLITE_OPEN_READWRITE or SQLITE_OPEN_CREATE);
     Procedure Disconnect;
     Procedure TransactionStart;
@@ -234,28 +238,33 @@ Type
     FOpenConnectionPragmaStatements: TALStrings;
     FNullString: AnsiString;
   Protected
+    function loadCachedData(const Key: AnsiString;
+                            var DataStr: AnsiString): Boolean; virtual;
+    Procedure SaveDataToCache(const Key: ansiString;
+                              const CacheThreshold: integer;
+                              const DataStr: ansiString); virtual;
     procedure CheckAPIError(ConnectionHandle: PSQLite3; Error: Boolean);
     function  GetDataBaseName: AnsiString; virtual;
     Function  GetFieldValue(aSqlite3stmt: PSQLite3Stmt;
                             aIndex: Integer;
                             aFormatSettings: TALFormatSettings): AnsiString; virtual;
-    procedure initObject(aDataBaseName: AnsiString;
+    procedure initObject(const aDataBaseName: AnsiString;
                          const aOpenConnectionFlags: integer = SQLITE_OPEN_READWRITE or SQLITE_OPEN_CREATE;
                          const aOpenConnectionPragmaStatements: AnsiString = ''); virtual;
     Function  AcquireConnection(const readonly: boolean = False): PSQLite3; virtual;
     Procedure ReleaseConnection(var ConnectionHandle: PSQLite3;
                                 const CloseConnection: Boolean = False); virtual;
     procedure OnSelectDataDone(Query: TALSqlite3ClientSelectDataQUERY;
-                               TimeTaken: Integer); virtual;
+                               TimeTaken: Double); virtual;
     procedure OnUpdateDataDone(Query: TALSqlite3ClientUpdateDataQUERY;
-                               TimeTaken: Integer); virtual;
+                               TimeTaken: Double); virtual;
   Public
-    Constructor Create(aDataBaseName: AnsiString;
+    Constructor Create(const aDataBaseName: AnsiString;
                        const aOpenConnectionFlags: integer = SQLITE_OPEN_READWRITE or SQLITE_OPEN_CREATE;
                        const aOpenConnectionPragmaStatements: AnsiString = '';
                        const alib: AnsiString = 'sqlite3.dll';
                        const initializeLib: Boolean = True); overload; virtual;
-    Constructor Create(aDataBaseName: AnsiString;
+    Constructor Create(const aDataBaseName: AnsiString;
                        alib: TALSqlite3Library;
                        const aOpenConnectionFlags: integer = SQLITE_OPEN_READWRITE or SQLITE_OPEN_CREATE;
                        const aOpenConnectionPragmaStatements: AnsiString = ''); overload; virtual;
@@ -264,7 +273,6 @@ Type
     procedure initialize; //can not be put in the create because config can/must be call prior initialize
     procedure shutdown;   //can not be put in the create because config can/must be call after shutdown
     procedure enable_shared_cache(enable: boolean);
-    function  soft_heap_limit64(n: int64): int64;
     Procedure ReleaseAllConnections(Const WaitWorkingConnections: Boolean = True); virtual;
     Procedure TransactionStart(Var ConnectionHandle: PSQLite3; const ReadOnly: boolean = False); virtual;
     Procedure TransactionCommit(var ConnectionHandle: PSQLite3;
@@ -345,6 +353,7 @@ Uses {$IF CompilerVersion >= 23} {Delphi XE2}
      classes,
      Diagnostics,
      {$IFEND}
+     ALCipher,
      ALWindows;
 
 {*************************************************************************************}
@@ -387,6 +396,21 @@ begin
   result := finTransaction;
 end;
 
+{*************************************************************}
+function TalSqlite3Client.loadCachedData(const Key: AnsiString;
+                                         var DataStr: AnsiString): Boolean;
+begin
+  result := false; //virtual need to be overriden
+end;
+
+{***************************************************************}
+Procedure TalSqlite3Client.SaveDataToCache(const Key: ansiString;
+                                           const CacheThreshold: integer;
+                                           const DataStr: ansiString);
+begin
+  //virtual need to be overriden
+end;
+
 {*******************************************************}
 procedure TalSqlite3Client.CheckAPIError(Error: Boolean);
 Begin
@@ -404,8 +428,8 @@ begin
   Case FLibrary.sqlite3_column_type(aSqlite3stmt, aIndex) of
     SQLITE_FLOAT: Result := ALFloattostr(FLibrary.sqlite3_column_double(aSqlite3stmt, aIndex), aFormatSettings);
     SQLITE_INTEGER,
-    SQLITE3_TEXT: result :=  AnsiString(FLibrary.sqlite3_column_text(aSqlite3stmt, aIndex)); // Strings returned by sqlite3_column_text(), even empty strings, are always zero terminated
-                                                                                             // Note: what's happen if #0 is inside the string ?
+    SQLITE3_TEXT: result :=  AnsiString(FLibrary.sqlite3_column_text(aSqlite3stmt, aIndex)); // Strings returned by sqlite3_column_text() and sqlite3_column_text16(), even
+                                                                                             // empty strings, are always zero-terminated.
     SQLITE_NULL: result := fNullString;
     else raise Exception.Create('Unsupported column type');
   end;
@@ -449,45 +473,55 @@ begin
   inherited;
 end;
 
-{*********************************************************************************
-The sqlite3_config() interface is used to make global configuration changes to SQLite
-in order to tune SQLite to the specific needs of the application.
+{*****************************************************************************
+The sqlite3_config() interface is used to make global configuration changes to
+SQLite in order to tune SQLite to the specific needs of the application. The
+default configuration is recommended for most applications and so this routine
+is usually not necessary. It is provided to support rare applications with
+unusual needs.
 
-The sqlite3_config() interface is not threadsafe. The application must insure that
-no other SQLite interfaces are invoked by other threads while sqlite3_config()
-is running. Furthermore, sqlite3_config() may only be invoked prior to library
-initialization using sqlite3_initialize() or after shutdown by sqlite3_shutdown().
+The sqlite3_config() interface is not threadsafe. The application must insure
+that no other SQLite interfaces are invoked by other threads while
+sqlite3_config() is running. Furthermore, sqlite3_config() may only be invoked
+prior to library initialization using sqlite3_initialize() or after shutdown by
+sqlite3_shutdown(). If sqlite3_config() is called after sqlite3_initialize() and
+before sqlite3_shutdown() then it will return SQLITE_MISUSE. Note, however, that
+sqlite3_config() can be called as part of the implementation of an
+application-defined sqlite3_os_init().
 
 SQLITE_CONFIG_SINGLETHREAD
   There are no arguments to this option. This option sets the threading mode to
-  Single-thread. In other words, it disables all mutexing and puts SQLite into a mode
-  where it can only be used by a single thread. If SQLite is compiled with the
-  SQLITE_THREADSAFE=0 compile-time option then it is not possible to change the
-  threading mode from its default value of Single-thread and so sqlite3_config()
-  will return SQLITE_ERROR if called with the SQLITE_CONFIG_SINGLETHREAD configuration option.
+  Single-thread. In other words, it disables all mutexing and puts SQLite into a
+  mode where it can only be used by a single thread. If SQLite is compiled with
+  the SQLITE_THREADSAFE=0 compile-time option then it is not possible to change
+  the threading mode from its default value of Single-thread and so
+  sqlite3_config() will return SQLITE_ERROR if called with the
+  SQLITE_CONFIG_SINGLETHREAD configuration option.
 
 SQLITE_CONFIG_MULTITHREAD
   There are no arguments to this option. This option sets the threading mode to
   Multi-thread. In other words, it disables mutexing on database connection and
   prepared statement objects. The application is responsible for serializing
   access to database connections and prepared statements. But other mutexes are
-  enabled so that SQLite will be safe to use in a multi-threaded environment as long
-  as no two threads attempt to use the same database connection at the same time.
-  If SQLite is compiled with the SQLITE_THREADSAFE=0 compile-time option then it
-  is not possible to set the Multi-thread threading mode and sqlite3_config() will
-  return SQLITE_ERROR if called with the SQLITE_CONFIG_MULTITHREAD configuration option.
+  enabled so that SQLite will be safe to use in a multi-threaded environment as
+  long as no two threads attempt to use the same database connection at the same
+  time. If SQLite is compiled with the SQLITE_THREADSAFE=0 compile-time option
+  then it is not possible to set the Multi-thread threading mode and
+  sqlite3_config() will return SQLITE_ERROR if called with the
+  SQLITE_CONFIG_MULTITHREAD configuration option.
 
 SQLITE_CONFIG_SERIALIZED
   There are no arguments to this option. This option sets the threading mode to
-  Serialized. In other words, this option enables all mutexes including the recursive
-  mutexes on database connection and prepared statement objects. In this mode (which
-  is the default when SQLite is compiled with SQLITE_THREADSAFE=1) the SQLite library
-  will itself serialize access to database connections and prepared statements so that
-  the application is free to use the same database connection or the same prepared
-  statement in different threads at the same time. If SQLite is compiled with the
-  SQLITE_THREADSAFE=0 compile-time option then it is not possible to set the Serialized
-  threading mode and sqlite3_config() will return SQLITE_ERROR if called with the
-  SQLITE_CONFIG_SERIALIZED configuration option.}
+  Serialized. In other words, this option enables all mutexes including the
+  recursive mutexes on database connection and prepared statement objects. In
+  this mode (which is the default when SQLite is compiled with
+  SQLITE_THREADSAFE=1) the SQLite library will itself serialize access to
+  database connections and prepared statements so that the application is free
+  to use the same database connection or the same prepared statement in
+  different threads at the same time. If SQLite is compiled with the
+  SQLITE_THREADSAFE=0 compile-time option then it is not possible to set the
+  Serialized threading mode and sqlite3_config() will return SQLITE_ERROR if
+  called with the SQLITE_CONFIG_SERIALIZED configuration option.}
 procedure TalSqlite3Client.config(Option: Integer);
 begin
   CheckAPIError(FLibrary.sqlite3_config(Option) <> SQLITE_OK);
@@ -505,63 +539,82 @@ begin
   CheckAPIError(FLibrary.sqlite3_shutdown <> SQLITE_OK);
 end;
 
-{**************************************************************}
+{****************************************************************************
+This routine enables or disables the sharing of the database cache and schema
+data structures between connections to the same database. Sharing is enabled if
+the argument is true and disabled if the argument is false.
+
+Cache sharing is enabled and disabled for an entire process. This is a change as
+of SQLite version 3.5.0. In prior versions of SQLite, sharing was enabled or
+disabled for each thread separately.
+
+The cache sharing mode set by this interface effects all subsequent calls to
+sqlite3_open(), sqlite3_open_v2(), and sqlite3_open16(). Existing database
+connections continue use the sharing mode that was in effect at the time they
+were opened.
+
+This routine returns SQLITE_OK if shared cache was enabled or disabled
+successfully. An error code is returned otherwise.
+
+Shared cache is disabled by default. But this might change in future releases of
+SQLite. Applications that care about shared cache setting should set it
+explicitly.
+
+Note: This method is disabled on MacOS X 10.7 and iOS version 5.0 and will
+always return SQLITE_MISUSE. On those systems, shared cache mode should be
+enabled per-database connection via sqlite3_open_v2() with
+SQLITE_OPEN_SHAREDCACHE.
+
+This interface is threadsafe on processors where writing a 32-bit integer is
+atomic.}
 procedure TalSqlite3Client.enable_shared_cache(enable: boolean);
 begin
   if enable then CheckAPIError(FLibrary.sqlite3_enable_shared_cache(1) <> SQLITE_OK)
   else CheckAPIError(FLibrary.sqlite3_enable_shared_cache(0) <> SQLITE_OK);
 end;
 
-{***********************************************************
-The sqlite3_soft_heap_limit64() interface sets and/or queries the soft limit on
-the amount of heap memory that may be allocated by SQLite. SQLite strives to keep
-heap memory utilization below the soft heap limit by reducing the number of
-pages held in the page cache as heap memory usages approaches the limit. The soft
-heap limit is "soft" because even though SQLite strives to stay below the limit,
-it will exceed the limit rather than generate an SQLITE_NOMEM error. In other words,
-the soft heap limit is advisory only.
-
-The return value from sqlite3_soft_heap_limit64() is the size of the soft heap
-limit prior to the call.}
-function TalSqlite3Client.soft_heap_limit64(n: int64): int64;
-begin
-  result := Flibrary.sqlite3_soft_heap_limit64(n);
-end;
-
 {**********************************************************
-The flags parameter to sqlite3_open_v2() can take one of the following three values, optionally combined with
-the SQLITE_OPEN_NOMUTEX, SQLITE_OPEN_FULLMUTEX, SQLITE_OPEN_SHAREDCACHE, and/or SQLITE_OPEN_PRIVATECACHE flags:
+The flags parameter to sqlite3_open_v2() can take one of the following three
+values, optionally combined with the SQLITE_OPEN_NOMUTEX, SQLITE_OPEN_FULLMUTEX,
+SQLITE_OPEN_SHAREDCACHE, SQLITE_OPEN_PRIVATECACHE, and/or SQLITE_OPEN_URI flags:
 
-  SQLITE_OPEN_READONLY
-    The database is opened in read-only mode. If the database does not already exist, an error is returned.
-  SQLITE_OPEN_READWRITE
-    The database is opened for reading and writing if possible, or reading only if the file is write protected by the
-    operating system. In either case the database must already exist, otherwise an error is returned.
-  SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE
-    The database is opened for reading and writing, and is creates it if it does not already exist. This is the
-    behavior that is always used for sqlite3_open() and sqlite3_open16().
+SQLITE_OPEN_READONLY
+  The database is opened in read-only mode. If the database does not already exist,
+  an error is returned.
 
-If the 3rd parameter to sqlite3_open_v2() is not one of the combinations shown above or one of the combinations
-shown above combined with the SQLITE_OPEN_NOMUTEX, SQLITE_OPEN_FULLMUTEX, SQLITE_OPEN_SHAREDCACHE and/or
-SQLITE_OPEN_PRIVATECACHE flags, then the behavior is undefined.
+SQLITE_OPEN_READWRITE
+  The database is opened for reading and writing if possible, or reading only if
+  the file is write protected by the operating system. In either case the
+  database must already exist, otherwise an error is returned.
 
-If the SQLITE_OPEN_NOMUTEX flag is set, then the database connection opens in the multi-thread
-threading mode as long as the single-thread mode has not been set at compile-time or start-time. If the
-SQLITE_OPEN_FULLMUTEX flag is set then the database connection opens in the serialized threading mode
-unless single-thread was previously selected at compile-time or start-time. The SQLITE_OPEN_SHAREDCACHE flag
-causes the database connection to be eligible to use shared cache mode, regardless of whether or not shared
-cache is enabled using sqlite3_enable_shared_cache(). The SQLITE_OPEN_PRIVATECACHE flag causes the
-database connection to not participate in shared cache mode even if it is enabled.
+SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE
+  The database is opened for reading and writing, and is created if it does not
+  already exist. This is the behavior that is always used for sqlite3_open() and
+  sqlite3_open16().
 
-If the filename is ":memory:", then a private, temporary in-memory database is created for the connection.
-This in-memory database will vanish when the database connection is closed. Future versions of
-SQLite might make use of additional special filenames that begin with the ":" character. It is recommended
-that when a database filename actually does begin with a ":" character you should prefix the filename
-with a pathname such as "./" to avoid ambiguity.
+If the SQLITE_OPEN_NOMUTEX flag is set, then the database connection opens in
+the multi-thread threading mode as long as the single-thread mode has not been
+set at compile-time or start-time. If the SQLITE_OPEN_FULLMUTEX flag is set then
+the database connection opens in the serialized threading mode unless
+single-thread was previously selected at compile-time or start-time.
+The SQLITE_OPEN_SHAREDCACHE flag causes the database connection to be eligible
+to use shared cache mode, regardless of whether or not shared cache is enabled
+using sqlite3_enable_shared_cache(). The SQLITE_OPEN_PRIVATECACHE flag causes
+the database connection to not participate in shared cache mode even if it
+is enabled.
 
-If the filename is an empty string, then a private, temporary on-disk database will be created.
-This private database will be automatically deleted as soon as the database connection is closed.}
-procedure TalSqlite3Client.connect(DatabaseName: AnsiString;
+If the filename is ":memory:", then a private, temporary in-memory database is
+created for the connection. This in-memory database will vanish when the
+database connection is closed. Future versions of SQLite might make use of
+additional special filenames that begin with the ":" character. It is
+recommended that when a database filename actually does begin with a ":"
+character you should prefix the filename with a pathname such as "./" to avoid
+ambiguity.
+
+If the filename is an empty string, then a private, temporary on-disk database
+will be created. This private database will be automatically deleted as soon as
+the database connection is closed.}
+procedure TalSqlite3Client.connect(const DatabaseName: AnsiString;
                                    const flags: integer = SQLITE_OPEN_READWRITE or SQLITE_OPEN_CREATE);
 begin
   if connected then raise Exception.Create('Already connected');
@@ -572,7 +625,7 @@ begin
     //Whether or not an error occurs when it is opened, resources associated with the
     //database connection handle should be released by passing it to sqlite3_close()
     //when it is no longer required
-    if assigned(FSqlite3) then fLibrary.sqlite3_close(FSqlite3);
+    if assigned(FSqlite3) then fLibrary.sqlite3_close_v2(FSqlite3);
     FSqlite3 := nil;
     Raise;
   End;
@@ -590,7 +643,7 @@ begin
   If not connected then exit;
   if InTransaction then TransactionRollback;
   try
-    FLibrary.sqlite3_close(FSqlite3);
+    FLibrary.sqlite3_close_v2(FSqlite3);
   Except
     //Disconnect must be a "safe" procedure because it's mostly called in
     //finalization part of the code that it is not protected
@@ -648,14 +701,14 @@ end;
 
 {*********************************************************************************}
 procedure TalSqlite3Client.OnSelectDataDone(Query: TALSqlite3ClientSelectDataQUERY;
-                                            TimeTaken: Integer);
+                                            TimeTaken: Double);
 begin
   // virtual
 end;
 
 {*********************************************************************************}
 procedure TalSqlite3Client.OnUpdateDataDone(Query: TALSqlite3ClientUpdateDataQUERY;
-                                            TimeTaken: Integer);
+                                            TimeTaken: Double);
 begin
   // virtual
 end;
@@ -681,6 +734,8 @@ Var astmt: PSQLite3Stmt;
     aXmlDocument: TalXmlDocument;
     aUpdateRowTagByFieldValue: Boolean;
     aStopWatch: TStopWatch;
+    aCacheKey: ansiString;
+    aCacheStr: ansiString;
 
 begin
 
@@ -707,6 +762,36 @@ begin
 
     {loop on all the SQL}
     For aQueriesIndex := 0 to length(Queries) - 1 do begin
+
+      //Handle the CacheThreshold
+      aCacheKey := '';
+      If (Queries[aQueriesIndex].CacheThreshold > 0) and
+         (not assigned(aXmlDocument)) and
+         (((length(Queries) = 1) and
+           (XMLdata.ChildNodes.Count = 0)) or  // else the save will not work
+          (Queries[aQueriesIndex].ViewTag <> '')) then begin
+
+        //try to load from from cache
+        aCacheKey := ALStringHashSHA1(Queries[aQueriesIndex].RowTag + '#' +
+                                      alinttostr(Queries[aQueriesIndex].Skip) + '#' +
+                                      alinttostr(Queries[aQueriesIndex].First) + '#' +
+                                      ALGetFormatSettingsID(FormatSettings) + '#' +
+                                      Queries[aQueriesIndex].SQL);
+        if loadcachedData(aCacheKey, aCacheStr) then begin
+
+          //init the aViewRec
+          if (Queries[aQueriesIndex].ViewTag <> '') then aViewRec := XMLdata.AddChild(Queries[aQueriesIndex].ViewTag)
+          else aViewRec := XMLdata;
+
+          //assign the tmp data to the XMLData
+          aViewRec.LoadFromXML(aCacheStr, true{XmlContainOnlyChildNodes}, false{ClearChildNodes});
+
+          //go to the next loop
+          continue;
+
+        end;
+
+      end;
 
       //start the TstopWatch
       aStopWatch.Reset;
@@ -800,7 +885,18 @@ begin
       //do the OnSelectDataDone
       aStopWatch.Stop;
       OnSelectDataDone(Queries[aQueriesIndex],
-                       aStopWatch.ElapsedMilliseconds);
+                       aStopWatch.Elapsed.TotalMilliseconds);
+
+      //save to the cache
+      If aCacheKey <> '' then begin
+
+        //save the data
+        aViewRec.SaveToXML(aCacheStr, true{SaveOnlyChildNodes});
+        SaveDataToCache(aCacheKey,
+                        Queries[aQueriesIndex].CacheThreshold,
+                        aCacheStr);
+
+      end;
 
     End;
 
@@ -987,7 +1083,7 @@ begin
     //do the OnUpdateDataDone
     aStopWatch.Stop;
     OnUpdateDataDone(Queries[aQueriesIndex],
-                     aStopWatch.ElapsedMilliseconds);
+                     aStopWatch.Elapsed.TotalMilliseconds);
 
   end;
 
@@ -1068,8 +1164,8 @@ begin
   end;
 end;
 
-{****************************************************************************}
-procedure TalSqlite3ConnectionPoolClient.initObject(aDataBaseName: AnsiString;
+{**********************************************************************************}
+procedure TalSqlite3ConnectionPoolClient.initObject(const aDataBaseName: AnsiString;
                                                     const aOpenConnectionFlags: integer = SQLITE_OPEN_READWRITE or SQLITE_OPEN_CREATE;
                                                     const aOpenConnectionPragmaStatements: AnsiString = '');
 begin
@@ -1089,8 +1185,8 @@ begin
 end;
 
 
-{**************************************************************************}
-constructor TalSqlite3ConnectionPoolClient.Create(aDataBaseName: AnsiString;
+{********************************************************************************}
+constructor TalSqlite3ConnectionPoolClient.Create(const aDataBaseName: AnsiString;
                                                   const aOpenConnectionFlags: integer = SQLITE_OPEN_READWRITE or SQLITE_OPEN_CREATE;
                                                   const aOpenConnectionPragmaStatements: AnsiString = '';
                                                   const alib: AnsiString = 'sqlite3.dll';
@@ -1111,8 +1207,8 @@ begin
   end;
 end;
 
-{**************************************************************************}
-constructor TalSqlite3ConnectionPoolClient.Create(aDataBaseName: AnsiString;
+{********************************************************************************}
+constructor TalSqlite3ConnectionPoolClient.Create(const aDataBaseName: AnsiString;
                                                   alib: TALSqlite3Library;
                                                   const aOpenConnectionFlags: integer = SQLITE_OPEN_READWRITE or SQLITE_OPEN_CREATE;
                                                   const aOpenConnectionPragmaStatements: AnsiString = '');
@@ -1143,6 +1239,21 @@ begin
 
 end;
 
+{***************************************************************************}
+function TalSqlite3ConnectionPoolClient.loadCachedData(const Key: AnsiString;
+                                                       var DataStr: AnsiString): Boolean;
+begin
+  result := false; //virtual need to be overriden
+end;
+
+{*****************************************************************************}
+Procedure TalSqlite3ConnectionPoolClient.SaveDataToCache(const Key: ansiString;
+                                                         const CacheThreshold: integer;
+                                                         const DataStr: ansiString);
+begin
+  //virtual need to be overriden
+end;
+
 {***************************************************************}
 procedure TalSqlite3ConnectionPoolClient.config(Option: Integer);
 begin
@@ -1166,12 +1277,6 @@ procedure TalSqlite3ConnectionPoolClient.enable_shared_cache(enable: boolean);
 begin
   if enable then CheckAPIError(nil, FLibrary.sqlite3_enable_shared_cache(1) <> SQLITE_OK)
   else CheckAPIError(nil, FLibrary.sqlite3_enable_shared_cache(0) <> SQLITE_OK);
-end;
-
-{*************************************************************************}
-function TalSqlite3ConnectionPoolClient.soft_heap_limit64(n: int64): int64;
-begin
-  result := Flibrary.sqlite3_soft_heap_limit64(n);
 end;
 
 {***************************************************************************************************}
@@ -1198,7 +1303,7 @@ Begin
         aConnectionPoolContainer := TalSqlite3ConnectionPoolContainer(FConnectionPool[0]);
         if aTickCount - aConnectionPoolContainer.Lastaccessdate > FConnectionMaxIdleTime then begin
           Try
-            FLibrary.sqlite3_close(aConnectionPoolContainer.ConnectionHandle);
+            FLibrary.sqlite3_close_v2(aConnectionPoolContainer.ConnectionHandle);
           Except
             //Disconnect must be a "safe" procedure because it's mostly called in
             //finalization part of the code that it is not protected
@@ -1230,7 +1335,7 @@ Begin
         //Whether or not an error occurs when it is opened, resources associated with the
         //database connection handle should be released by passing it to sqlite3_close()
         //when it is no longer required
-        if assigned(result) then fLibrary.sqlite3_close(result);
+        if assigned(result) then fLibrary.sqlite3_close_v2(result);
         Raise;
       End;
     end;
@@ -1275,7 +1380,7 @@ Begin
     else FDatabaseRWCS.EndRead;
 
     //free the result
-    if assigned(result) then fLibrary.sqlite3_close(result);
+    if assigned(result) then fLibrary.sqlite3_close_v2(result);
 
     //raise the exception
     Raise;
@@ -1314,7 +1419,7 @@ begin
     //close the connection
     else begin
       try
-        FLibrary.sqlite3_close(ConnectionHandle);
+        FLibrary.sqlite3_close_v2(ConnectionHandle);
       Except
         //Disconnect must be a "safe" procedure because it's mostly called in
         //finalization part of the code that it is not protected
@@ -1367,7 +1472,7 @@ begin
       while FConnectionPool.Count > 0 do begin
         aConnectionPoolContainer := TalSqlite3ConnectionPoolContainer(FConnectionPool[FConnectionPool.count - 1]);
         Try
-          FLibrary.sqlite3_close(aConnectionPoolContainer.ConnectionHandle);
+          FLibrary.sqlite3_close_v2(aConnectionPoolContainer.ConnectionHandle);
         Except
           //Disconnect must be a "safe" procedure because it's mostly called in
           //finalization part of the code that it is not protected
@@ -1457,14 +1562,14 @@ end;
 
 {***********************************************************************************************}
 procedure TalSqlite3ConnectionPoolClient.OnSelectDataDone(Query: TALSqlite3ClientSelectDataQUERY;
-                                                          TimeTaken: Integer);
+                                                          TimeTaken: Double);
 begin
   // virtual
 end;
 
 {***********************************************************************************************}
 procedure TalSqlite3ConnectionPoolClient.OnUpdateDataDone(Query: TALSqlite3ClientUpdateDataQUERY;
-                                                          TimeTaken: Integer);
+                                                          TimeTaken: Double);
 begin
   // virtual
 end;
@@ -1494,6 +1599,8 @@ Var astmt: PSQLite3Stmt;
     aXmlDocument: TalXmlDocument;
     aUpdateRowTagByFieldValue: Boolean;
     aStopWatch: TStopWatch;
+    aCacheKey: ansiString;
+    aCacheStr: ansiString;
 
 begin
 
@@ -1523,6 +1630,36 @@ begin
 
       {loop on all the SQL}
       For aQueriesIndex := 0 to length(Queries) - 1 do begin
+
+        //Handle the CacheThreshold
+        aCacheKey := '';
+        If (Queries[aQueriesIndex].CacheThreshold > 0) and
+           (not assigned(aXmlDocument)) and
+           (((length(Queries) = 1) and
+             (XMLdata.ChildNodes.Count = 0)) or  // else the save will not work
+            (Queries[aQueriesIndex].ViewTag <> '')) then begin
+
+          //try to load from from cache
+          aCacheKey := ALStringHashSHA1(Queries[aQueriesIndex].RowTag + '#' +
+                                        alinttostr(Queries[aQueriesIndex].Skip) + '#' +
+                                        alinttostr(Queries[aQueriesIndex].First) + '#' +
+                                        ALGetFormatSettingsID(FormatSettings) + '#' +
+                                        Queries[aQueriesIndex].SQL);
+          if loadcachedData(aCacheKey, aCacheStr) then begin
+
+            //init the aViewRec
+            if (Queries[aQueriesIndex].ViewTag <> '') then aViewRec := XMLdata.AddChild(Queries[aQueriesIndex].ViewTag)
+            else aViewRec := XMLdata;
+
+            //assign the tmp data to the XMLData
+            aViewRec.LoadFromXML(aCacheStr, true{XmlContainOnlyChildNodes}, false{ClearChildNodes});
+
+            //go to the next loop
+            continue;
+
+          end;
+
+        end;
 
         //start the TstopWatch
         aStopWatch.Reset;
@@ -1616,7 +1753,18 @@ begin
         //do the OnSelectDataDone
         aStopWatch.Stop;
         OnSelectDataDone(Queries[aQueriesIndex],
-                         aStopWatch.ElapsedMilliseconds);
+                         aStopWatch.Elapsed.TotalMilliseconds);
+
+        //save to the cache
+        If aCacheKey <> '' then begin
+
+          //save the data
+          aViewRec.SaveToXML(aCacheStr, true{SaveOnlyChildNodes});
+          SaveDataToCache(aCacheKey,
+                          Queries[aQueriesIndex].CacheThreshold,
+                          aCacheStr);
+
+        end;
 
       end;
 
@@ -1838,7 +1986,7 @@ begin
       //do the OnUpdateDataDone
       aStopWatch.Stop;
       OnUpdateDataDone(Queries[aQueriesIndex],
-                       aStopWatch.ElapsedMilliseconds);
+                       aStopWatch.Elapsed.TotalMilliseconds);
 
     end;
 

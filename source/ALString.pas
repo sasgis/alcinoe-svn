@@ -128,6 +128,7 @@ resourcestring
 type
 
   {$IFDEF UNICODE}
+  pALFormatSettings = ^TALFormatSettings;
   TALFormatSettings = record
   public
     // Important: Do not change the order of these declarations, they must
@@ -169,6 +170,11 @@ type
   {$ELSE}
   TALFormatSettings = TFormatSettings;
   {$ENDIF}
+
+  function ALGetFormatSettingsID(const aFormatSettings: TALFormatSettings): AnsiString;
+  procedure ALGetLocaleFormatSettings(Locale: LCID; var AFormatSettings: TALFormatSettings);
+
+type
 
   EALException = class(Exception)
   public
@@ -417,7 +423,6 @@ type
                                        Const SourceString: AnsiString;
                                        Var TagPosition, TagLength: integer): AnsiString;
 
-procedure ALGetLocaleFormatSettings(Locale: LCID; var AFormatSettings: TALFormatSettings);
 function  ALGUIDToByteString(const Guid: TGUID): Ansistring;
 function  ALNewGUIDByteString: Ansistring;
 function  ALGUIDToString(const Guid: TGUID; const WithoutBracket: boolean = false; const WithoutHyphen: boolean = false): Ansistring;
@@ -454,6 +459,9 @@ function  ALStrToInt64Def(const S: AnsiString; const Default: Int64): Int64;
 function  ALIntToStr(Value: Integer): AnsiString; overload;
 function  ALIntToStr(Value: Int64): AnsiString; overload;
 {$IFDEF UNICODE}
+function  ALStrToUInt64(const S: ansistring): UInt64; overload;
+function  ALStrToUInt64Def(const S: ansistring; const Default: UInt64): UInt64; overload;
+function  ALTryStrToUInt64(const S: ansistring; out Value: UInt64): Boolean; overload;
 function  ALUIntToStr(Value: Cardinal): AnsiString; overload;
 function  ALUIntToStr(Value: UInt64): AnsiString; overload;
 {$ENDIF}
@@ -498,6 +506,8 @@ function  ALCompareStr(const S1, S2: AnsiString): Integer;
 function  ALSameStr(const S1, S2: AnsiString): Boolean;
 function  ALCompareText(const S1, S2: AnsiString): Integer;
 function  ALSameText(const S1, S2: AnsiString): Boolean;
+function  ALMatchText(const aText: AnsiString; const aValues: array of AnsiString): boolean;
+function  ALMatchStr(const aText: AnsiString; const aValues: array of AnsiString): boolean;
 function  ALTrim(const S: AnsiString): AnsiString;
 function  ALTrimLeft(const S: AnsiString): AnsiString;
 function  ALTrimRight(const S: AnsiString): AnsiString;
@@ -512,9 +522,11 @@ function  ALExtractFileDrive(const FileName: AnsiString): AnsiString;
 function  ALExtractFileName(const FileName: AnsiString): AnsiString;
 function  ALExtractFileExt(const FileName: AnsiString): AnsiString;
 function  ALLastDelimiter(const Delimiters, S: AnsiString): Integer;
-function  ALIsPathDelimiter(const S: AnsiString; Index: Integer): Boolean;
-function  ALIncludeTrailingPathDelimiter(const S: AnsiString): AnsiString;
-function  ALExcludeTrailingPathDelimiter(const S: AnsiString): AnsiString;
+function  ALIsPathDelimiter(const S: AnsiString; Index: Integer; const PathDelimiter: ansiString = {$IFDEF MSWINDOWS} '\' {$ELSE} '/' {$ENDIF}): Boolean;
+function  ALIncludeTrailingPathDelimiter(const S: AnsiString; const PathDelimiter: ansiString = {$IFDEF MSWINDOWS} '\' {$ELSE} '/' {$ENDIF}): AnsiString;
+function  ALExcludeTrailingPathDelimiter(const S: AnsiString; const PathDelimiter: ansiString = {$IFDEF MSWINDOWS} '\' {$ELSE} '/' {$ENDIF}): AnsiString;
+function  ALIncludeLeadingPathDelimiter(const S: AnsiString; const PathDelimiter: ansiString = {$IFDEF MSWINDOWS} '\' {$ELSE} '/' {$ENDIF}): AnsiString;
+function  ALExcludeLeadingPathDelimiter(const S: AnsiString; const PathDelimiter: ansiString = {$IFDEF MSWINDOWS} '\' {$ELSE} '/' {$ENDIF}): AnsiString;
 procedure ALMove(const Source; var Dest; Count: {$if CompilerVersion >= 23}{Delphi XE2}NativeInt{$ELSE}Integer{$IFEND});
 procedure ALStrMove(const Source: PAnsiChar; var Dest: PAnsiChar; Count: {$if CompilerVersion >= 23}{Delphi XE2}NativeInt{$ELSE}Integer{$IFEND});
 function  ALCopyStr(const aSourceString: AnsiString; aStart, aLength: Integer): AnsiString; overload;
@@ -794,6 +806,40 @@ begin
   {$IFEND}
 end;
 {$ENDIF}
+
+{***********************************************************************************}
+function ALGetFormatSettingsID(const aFormatSettings: TALFormatSettings): AnsiString;
+var i: integer;
+begin
+  With aFormatSettings do begin
+    Result := CurrencyString + '#' +
+              ALIntToStr(CurrencyFormat) + '#' +
+              ALIntToStr(CurrencyDecimals) + '#' +
+              DateSeparator + '#' +
+              TimeSeparator + '#' +
+              ListSeparator + '#' +
+              ShortDateFormat + '#' +
+              LongDateFormat + '#' +
+              TimeAMString + '#' +
+              TimePMString + '#' +
+              ShortTimeFormat + '#' +
+              LongTimeFormat + '#';
+
+    for I := low(ShortMonthNames) to high(ShortMonthNames) do
+      result := result + ShortMonthNames[i] + '#';
+    for I := low(LongMonthNames) to high(LongMonthNames) do
+      result := result + LongMonthNames[i] + '#';
+    for I := low(ShortDayNames) to high(ShortDayNames) do
+      result := result + ShortDayNames[i] + '#';
+    for I := low(LongDayNames) to high(LongDayNames) do
+      result := result + LongDayNames[i] + '#';
+
+    Result := Result + ThousandSeparator + '#' +
+                       DecimalSeparator + '#' +
+                       ALIntToStr(TwoDigitYearCenturyWindow) + '#' +
+                       ALIntToStr(NegCurrFormat);
+  end;
+end;
 
 {****************************************************************************************}
 procedure ALGetLocaleFormatSettings(Locale: LCID; var AFormatSettings: TALFormatSettings);
@@ -3346,7 +3392,7 @@ var
   Overwrite: Boolean;
   FormatChar: AnsiChar;
   S: AnsiString;
-  StrBuf: array[0..64] of AnsiChar;
+  StrBuf: array[0..64] of AnsiChar; // if currencystring contain more than 64 chars then it's raise an error :(
   LeftJustification: Boolean;
   Width: Integer;
   Precision: Integer;
@@ -3762,7 +3808,7 @@ var
   ArgIndex, Width, Prec: Integer;
   BufferOrg, FormatOrg, FormatPtr: PAnsiChar;
   JustFlag: Byte;
-  StrBuf: array[0..64] of AnsiChar;
+  StrBuf: array[0..64] of AnsiChar; // if currencystring contain more than 64 chars then it's raise an error :(
   TempAnsiStr: AnsiString;
   SaveGOT: Integer;
 asm
@@ -5644,6 +5690,102 @@ begin
 end;
 {$ENDIF}
 
+{**************}
+{$IFDEF UNICODE}
+// the original implementation was with lot of "RANGE CHECK ERROR"
+// Exemple: while s[i] = AnsiChar(' ') do Inc(i);
+function _ALValUInt64(const s: ansistring; var code: Integer): UInt64;
+var
+  i: Integer;
+  len: Integer;
+  dig: Integer;
+  sign: Boolean;
+  empty: Boolean;
+begin
+  i := 1;
+  {$IFNDEF CPUX64} // avoid E1036: Variable 'dig' might not have been initialized
+  dig := 0;
+  {$ENDIF}
+  Result := 0;
+  if s = '' then
+  begin
+    code := 1;
+    exit;
+  end;
+  len := Length(S);
+  while (i <= Len) and (s[i] = ansiChar(' ')) do Inc(i);
+  if i > len then begin
+    code := i;
+    exit;
+  end;
+  sign := False;
+  if s[i] =  ansiChar('-') then
+  begin
+    sign := True;
+    Inc(i);
+    if i > len then begin
+      code := i;
+      exit;
+    end;
+  end
+  else if s[i] =  ansiChar('+') then begin
+    Inc(i);
+    if i > len then begin
+      code := i;
+      exit;
+    end;
+  end;
+  empty := True;
+  if (s[i] =  ansiChar('$')) or
+     (Upcase(s[i]) =  ansiChar('X')) or
+     ((s[i] =  ansiChar('0')) and
+      (I < Len) and
+      (Upcase(s[i+1]) = ansiChar('X'))) then
+  begin
+    if s[i] =  ansiChar('0') then
+      Inc(i);
+    Inc(i);
+    while (i <= Len) do
+    begin
+      case   ansiChar(s[i]) of
+       ansiChar('0').. ansiChar('9'): dig := Ord(s[i]) -  Ord('0');
+       ansiChar('A').. ansiChar('F'): dig := Ord(s[i]) - (Ord('A') - 10);
+       ansiChar('a').. ansiChar('f'): dig := Ord(s[i]) - (Ord('a') - 10);
+      else
+        break;
+      end;
+      if Result > (High(UInt64) shr 4) then
+        Break;
+      if sign and (dig <> 0) then
+        Break;
+      Result := Result shl 4 + dig;
+      Inc(i);
+      empty := False;
+    end;
+  end
+  else
+  begin
+    while (i <= Len) do
+    begin
+      case  ansiChar(s[i]) of
+        ansiChar('0').. ansiChar('9'): dig := Ord(s[i]) - Ord('0');
+      else
+        break;
+      end;
+      if Result > (High(UInt64) div 10) then
+        Break;
+      if sign and (dig <> 0) then
+        Break;
+      Result := Result*10 + dig;
+      Inc(i);
+      empty := False;
+    end;
+  end;
+  if (i <= len) or empty then code := i
+  else code := 0;
+end;
+{$ENDIF}
+
 {***********************************************************************}
 function ALTryStrToInt(const S: AnsiString; out Value: Integer): Boolean;
 {$IFDEF UNICODE}
@@ -5734,7 +5876,6 @@ begin
   result := StrToInt64Def(S, Default);
 end;
 {$ENDIF}
-
 
 {**************}
 {$IFDEF UNICODE}
@@ -5927,6 +6068,39 @@ end;
 {$ELSE}
 begin
   result := IntToStr(Value);
+end;
+{$ENDIF}
+
+{**************}
+{$IFDEF UNICODE}
+function ALStrToUInt64(const S: ansistring): UInt64;
+var
+  E: Integer;
+begin
+  Result := _ALValUInt64(S, E);
+  if E <> 0 then raise EConvertError.CreateResFmt(@{$IF CompilerVersion >= 23}{Delphi XE2}System.{$IFEND}SysConst.SInvalidInteger, [S]);
+end;
+{$ENDIF}
+
+{**************}
+{$IFDEF UNICODE}
+function ALStrToUInt64Def(const S: ansistring; const Default: UInt64): UInt64;
+var
+  E: Integer;
+begin
+  Result := _ALValUInt64(S, E);
+  if E <> 0 then Result := Default;
+end;
+{$ENDIF}
+
+{**************}
+{$IFDEF UNICODE}
+function ALTryStrToUInt64(const S: ansistring; out Value: UInt64): Boolean;
+var
+  E: Integer;
+begin
+  Value := _ALValUInt64(S, E);
+  Result := E = 0;
 end;
 {$ENDIF}
 
@@ -7935,6 +8109,26 @@ begin
   {$ENDIF}
 end;
 
+{*****************************************************************************************}
+function ALMatchText(const aText: AnsiString; const aValues: array of AnsiString): boolean;
+begin
+  {$IFDEF UNICODE}
+  Result := System.AnsiStrings.MatchText(aText, aValues);
+  {$ELSE}
+  Result := MatchText(aText, aValues);
+  {$ENDIF}
+end;
+
+{****************************************************************************************}
+function ALMatchStr(const aText: AnsiString; const aValues: array of AnsiString): boolean;
+begin
+  {$IFDEF UNICODE}
+  Result := System.AnsiStrings.MatchStr(aText, aValues);
+  {$ELSE}
+  Result := MatchStr(aText, aValues);
+  {$ENDIF}
+end;
+
 {************************************************}
 function  ALTrim(const S: AnsiString): AnsiString;
 begin
@@ -8111,26 +8305,40 @@ begin
   end;
 end;
 
-{***********************************************************************}
-function ALIsPathDelimiter(const S: AnsiString; Index: Integer): Boolean;
+{******************************************************************************************************************************************************}
+function ALIsPathDelimiter(const S: AnsiString; Index: Integer; const PathDelimiter: ansiString = {$IFDEF MSWINDOWS} '\' {$ELSE} '/' {$ENDIF}): Boolean;
 begin
-  Result := (Index > 0) and (Index <= Length(S)) and (S[Index] = PathDelim);
+  Result := (Index > 0) and (Index <= Length(S)) and (S[Index] = PathDelimiter);
 end;
 
-{***********************************************************************}
-function ALIncludeTrailingPathDelimiter(const S: AnsiString): AnsiString;
+{******************************************************************************************************************************************************}
+function ALIncludeTrailingPathDelimiter(const S: AnsiString; const PathDelimiter: ansiString = {$IFDEF MSWINDOWS} '\' {$ELSE} '/' {$ENDIF}): AnsiString;
 begin
   Result := S;
-  if not ALIsPathDelimiter(Result, Length(Result)) then
-    Result := Result + PathDelim;
+  if not ALIsPathDelimiter(Result, Length(Result), PathDelimiter) then
+    Result := Result + PathDelimiter;
 end;
 
-{***********************************************************************}
-function ALExcludeTrailingPathDelimiter(const S: AnsiString): AnsiString;
+{******************************************************************************************************************************************************}
+function ALExcludeTrailingPathDelimiter(const S: AnsiString; const PathDelimiter: ansiString = {$IFDEF MSWINDOWS} '\' {$ELSE} '/' {$ENDIF}): AnsiString;
 begin
   Result := S;
-  if ALIsPathDelimiter(Result, Length(Result)) then
+  if ALIsPathDelimiter(Result, Length(Result), PathDelimiter) then
     SetLength(Result, Length(Result)-1);
+end;
+
+{*****************************************************************************************************************************************************}
+function ALIncludeLeadingPathDelimiter(const S: AnsiString; const PathDelimiter: ansiString = {$IFDEF MSWINDOWS} '\' {$ELSE} '/' {$ENDIF}): AnsiString;
+begin
+  if not ALIsPathDelimiter(s, 1, PathDelimiter) then Result := PathDelimiter + s
+  else Result := S;
+end;
+
+{*****************************************************************************************************************************************************}
+function ALExcludeLeadingPathDelimiter(const S: AnsiString; const PathDelimiter: ansiString = {$IFDEF MSWINDOWS} '\' {$ELSE} '/' {$ENDIF}): AnsiString;
+begin
+  if ALIsPathDelimiter(S, 1, PathDelimiter) then Result := ALcopyStr(S,2,maxint)
+  else result := S;
 end;
 
 {**********************************************************************************************************************}
@@ -8433,17 +8641,17 @@ Const ResultBuffSize: integer = 16384;
       Result := ALTrim(AlcopyStr(ReplaceString,length(TokenStr) + 1, MaxInt));
     end;
 
-    {----------------------------------------}
-    Procedure _MoveStr2Result(Src:AnsiString);
-    Var l: integer;
-    Begin
-      If Src <> '' then begin
+    {-----------------------------------------------}
+    procedure _MoveStr2Result(const Src: AnsiString);
+    var L: integer;
+    begin
+      if Src <> '' then begin
         L := Length(Src);
-        If L+ResultCurrentPos-1>ResultCurrentLength Then begin
+        If L + ResultCurrentPos - 1 > ResultCurrentLength then begin
           ResultCurrentLength := ResultCurrentLength + L + ResultBuffSize;
-          SetLength(Result,ResultCurrentLength);
+          SetLength(Result, ResultCurrentLength);
         end;
-        AlMove(Src[1],Result[ResultCurrentPos],L);
+        AlMove(Src[1], Result[ResultCurrentPos], L);
         ResultCurrentPos := ResultCurrentPos + L;
       end;
     end;
@@ -8498,6 +8706,7 @@ begin
       ParamStr := _ExtractParamsStr;
       ParamList := TALStringList.Create;
       try
+        ParamList.Duplicates := dupIgnore;
         ALExtractHeaderFieldsWithQuoteEscaped([' ', #9, #13, #10],
                                               [' ', #9, #13, #10],
                                               ['"', ''''],

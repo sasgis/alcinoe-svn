@@ -344,6 +344,11 @@ type
       fKeepAlive: Boolean;
       fTCPNoDelay: Boolean;
     protected
+      function loadCachedData(const Key: AnsiString;
+                              var DataStr: AnsiString): Boolean; virtual;
+      Procedure SaveDataToCache(const Key: ansiString;
+                                const CacheThreshold: integer;
+                                const DataStr: ansiString); virtual;
       procedure DoSetSendTimeout(aSocketDescriptor: TSocket; const Value: integer); virtual;
       procedure DoSetReceiveTimeout(aSocketDescriptor: TSocket; const Value: integer); virtual;
       procedure DoSetKeepAlive(aSocketDescriptor: TSocket; const Value: boolean); virtual;
@@ -467,15 +472,15 @@ type
                           const selector: ansiString;             // query object.
                           var NumberOfDocumentsRemoved: integer); // reports the number of documents updated or removed, if the preceding operation was an update or remove operation.
       procedure OnSelectDataDone(Query: TALMongoDBClientSelectDataQUERY;
-                                 TimeTaken: Integer); virtual;
+                                 TimeTaken: double); virtual;
       procedure OnUpdateDataDone(Query: TALMongoDBClientUpdateDataQUERY;
-                                 TimeTaken: Integer); virtual;
+                                 TimeTaken: double); virtual;
       procedure OnDeleteDataDone(Query: TALMongoDBClientDeleteDataQUERY;
-                                 TimeTaken: Integer); virtual;
+                                 TimeTaken: double); virtual;
       procedure OnInsertDataDone(Query: TALMongoDBClientInsertDataQUERY;
-                                 TimeTaken: Integer); virtual;
+                                 TimeTaken: double); virtual;
       procedure OnFindAndModifyDataDone(Query: TALMongoDBClientFindAndModifyDataQUERY;
-                                        TimeTaken: Integer); virtual;
+                                        TimeTaken: double); virtual;
     public
       constructor Create; virtual;
       destructor Destroy; override;
@@ -830,6 +835,7 @@ uses {$IF CompilerVersion >= 23} {Delphi XE2}
      Windows,
      Diagnostics,
      {$IFEND}
+     ALCipher,
      AlWinsock,
      ALWindows;
 
@@ -2041,35 +2047,35 @@ end;
 
 {*************************************************************************************}
 procedure TAlBaseMongoDBClient.OnSelectDataDone(Query: TALMongoDBClientSelectDataQUERY;
-                                                TimeTaken: Integer);
+                                                TimeTaken: double);
 begin
   // virtual
 end;
 
 {*************************************************************************************}
 procedure TAlBaseMongoDBClient.OnUpdateDataDone(Query: TALMongoDBClientUpdateDataQUERY;
-                                                TimeTaken: Integer);
+                                                TimeTaken: double);
 begin
   // virtual
 end;
 
 {*************************************************************************************}
 procedure TAlBaseMongoDBClient.OnDeleteDataDone(Query: TALMongoDBClientDeleteDataQUERY;
-                                                TimeTaken: Integer);
+                                                TimeTaken: double);
 begin
   // virtual
 end;
 
 {*************************************************************************************}
 procedure TAlBaseMongoDBClient.OnInsertDataDone(Query: TALMongoDBClientInsertDataQUERY;
-                                                TimeTaken: Integer);
+                                                TimeTaken: double);
 begin
   // virtual
 end;
 
 {***************************************************************************************************}
 procedure TAlBaseMongoDBClient.OnFindAndModifyDataDone(Query: TALMongoDBClientFindAndModifyDataQUERY;
-                                                       TimeTaken: Integer);
+                                                       TimeTaken: double);
 begin
   // virtual
 end;
@@ -2086,6 +2092,21 @@ function TAlBaseMongoDBClient.SocketRead(aSocketDescriptor: TSocket; var buf; le
 begin
   Result := Recv(aSocketDescriptor,buf,len,0);
   CheckError(Result = SOCKET_ERROR);
+end;
+
+{*****************************************************************}
+function TAlBaseMongoDBClient.loadCachedData(const Key: AnsiString;
+                                             var DataStr: AnsiString): Boolean;
+begin
+  result := false; //virtual need to be overriden
+end;
+
+{*******************************************************************}
+Procedure TAlBaseMongoDBClient.SaveDataToCache(const Key: ansiString;
+                                               const CacheThreshold: integer;
+                                               const DataStr: ansiString);
+begin
+  //virtual need to be overriden
 end;
 
 {************************************************************************************************}
@@ -2236,6 +2257,8 @@ Var aQueriesIndex: integer;
     aRecAdded: integer;
     aContinue: boolean;
     aStopWatch: TStopWatch;
+    aCacheKey: ansiString;
+    aCacheStr: ansiString;
 
 begin
 
@@ -2262,6 +2285,39 @@ begin
 
     //loop on all the Queries
     For aQueriesIndex := 0 to length(Queries) - 1 do begin
+
+      //Handle the CacheThreshold
+      aCacheKey := '';
+      If (Queries[aQueriesIndex].CacheThreshold > 0) and
+         (not assigned(aJSONDocument)) and
+         (not Queries[aQueriesIndex].flags.TailMonitoring) and
+         (((length(Queries) = 1) and
+           (JSONDATA.ChildNodes.Count = 0)) or  // else the save will not work
+          (Queries[aQueriesIndex].ViewTag <> '')) then begin
+
+        //try to load from from cache
+        aCacheKey := ALStringHashSHA1(Queries[aQueriesIndex].RowTag + '#' +
+                                      alinttostr(Queries[aQueriesIndex].Skip) + '#' +
+                                      alinttostr(Queries[aQueriesIndex].First) + '#' +
+                                      Queries[aQueriesIndex].FullCollectionName + '#' +
+                                      Queries[aQueriesIndex].ReturnFieldsSelector + '#' +
+                                      Queries[aQueriesIndex].Query);
+
+        if loadcachedData(aCacheKey, aCacheStr) then begin
+
+          //init the aViewRec
+          if (Queries[aQueriesIndex].ViewTag <> '') then aViewRec := JSONDATA.AddChild(Queries[aQueriesIndex].ViewTag, ntobject)
+          else aViewRec := JSONDATA;
+
+          //assign the tmp data to the XMLData
+          aViewRec.LoadFromJson(aCacheStr, false{ClearChildNodes});
+
+          //go to the next loop
+          continue;
+
+        end;
+
+      end;
 
       //start the TstopWatch
       aStopWatch.Reset;
@@ -2393,7 +2449,18 @@ begin
       //do the OnSelectDataDone
       aStopWatch.Stop;
       OnSelectDataDone(Queries[aQueriesIndex],
-                       aStopWatch.ElapsedMilliseconds);
+                       aStopWatch.Elapsed.TotalMilliseconds);
+
+      //save to the cache
+      If aCacheKey <> '' then begin
+
+        //save the data
+        aViewRec.SaveToJSON(aCacheStr);
+        SaveDataToCache(aCacheKey,
+                        Queries[aQueriesIndex].CacheThreshold,
+                        aCacheStr);
+
+      end;
 
     End;
 
@@ -2575,7 +2642,7 @@ begin
     //do the OnUpdateDataDone
     aStopWatch.Stop;
     OnUpdateDataDone(Queries[aQueriesIndex],
-                     aStopWatch.ElapsedMilliseconds);
+                     aStopWatch.Elapsed.TotalMilliseconds);
 
   end;
 
@@ -2616,7 +2683,7 @@ begin
   //do the OnUpdateDataDone
   aStopWatch.Stop;
   OnUpdateDataDone(Query,
-                   aStopWatch.ElapsedMilliseconds);
+                   aStopWatch.Elapsed.TotalMilliseconds);
 
 end;
 
@@ -2715,7 +2782,7 @@ begin
     //do the OnInsertDataDone
     aStopWatch.Stop;
     OnInsertDataDone(Queries[aQueriesIndex],
-                     aStopWatch.ElapsedMilliseconds);
+                     aStopWatch.Elapsed.TotalMilliseconds);
 
   end;
 
@@ -2782,7 +2849,7 @@ begin
     //do the OnDeleteDataDone
     aStopWatch.Stop;
     OnDeleteDataDone(Queries[aQueriesIndex],
-                     aStopWatch.ElapsedMilliseconds);
+                     aStopWatch.Elapsed.TotalMilliseconds);
 
   end;
 
@@ -2816,7 +2883,7 @@ begin
   //do the OnDeleteDataDone
   aStopWatch.Stop;
   OnDeleteDataDone(Query,
-                   aStopWatch.ElapsedMilliseconds);
+                   aStopWatch.Elapsed.TotalMilliseconds);
 
 end;
 
@@ -3034,7 +3101,7 @@ begin
   //do the OnDeleteDataDone
   aStopWatch.Stop;
   OnFindAndModifyDataDone(Query,
-                          aStopWatch.ElapsedMilliseconds);
+                          aStopWatch.Elapsed.TotalMilliseconds);
 
 end;
 
@@ -3351,6 +3418,8 @@ Var aQueriesIndex: integer;
     aTMPConnectionSocket: TSocket;
     aOwnConnection: Boolean;
     aStopWatch: TStopWatch;
+    aCacheKey: ansiString;
+    aCacheStr: ansiString;
 
 begin
 
@@ -3386,6 +3455,39 @@ begin
 
       //loop on all the Queries
       For aQueriesIndex := 0 to length(Queries) - 1 do begin
+
+        //Handle the CacheThreshold
+        aCacheKey := '';
+        If (Queries[aQueriesIndex].CacheThreshold > 0) and
+           (not assigned(aJSONDocument)) and
+           (not Queries[aQueriesIndex].flags.TailMonitoring) and
+           (((length(Queries) = 1) and
+             (JSONDATA.ChildNodes.Count = 0)) or  // else the save will not work
+            (Queries[aQueriesIndex].ViewTag <> '')) then begin
+
+          //try to load from from cache
+          aCacheKey := ALStringHashSHA1(Queries[aQueriesIndex].RowTag + '#' +
+                                        alinttostr(Queries[aQueriesIndex].Skip) + '#' +
+                                        alinttostr(Queries[aQueriesIndex].First) + '#' +
+                                        Queries[aQueriesIndex].FullCollectionName + '#' +
+                                        Queries[aQueriesIndex].ReturnFieldsSelector + '#' +
+                                        Queries[aQueriesIndex].Query);
+
+          if loadcachedData(aCacheKey, aCacheStr) then begin
+
+            //init the aViewRec
+            if (Queries[aQueriesIndex].ViewTag <> '') then aViewRec := JSONDATA.AddChild(Queries[aQueriesIndex].ViewTag, ntobject)
+            else aViewRec := JSONDATA;
+
+            //assign the tmp data to the XMLData
+            aViewRec.LoadFromJson(aCacheStr, false{ClearChildNodes});
+
+            //go to the next loop
+            continue;
+
+          end;
+
+        end;
 
         //start the TstopWatch
         aStopWatch.Reset;
@@ -3497,7 +3599,18 @@ begin
         //do the OnSelectDataDone
         aStopWatch.Stop;
         OnSelectDataDone(Queries[aQueriesIndex],
-                         aStopWatch.ElapsedMilliseconds);
+                         aStopWatch.Elapsed.TotalMilliseconds);
+
+        //save to the cache
+        If aCacheKey <> '' then begin
+
+          //save the data
+          aViewRec.SaveToJSON(aCacheStr);
+          SaveDataToCache(aCacheKey,
+                          Queries[aQueriesIndex].CacheThreshold,
+                          aCacheStr);
+
+        end;
 
       End;
 
@@ -3723,7 +3836,7 @@ begin
       //do the OnUpdateDataDone
       aStopWatch.Stop;
       OnUpdateDataDone(Queries[aQueriesIndex],
-                       aStopWatch.ElapsedMilliseconds);
+                       aStopWatch.Elapsed.TotalMilliseconds);
 
     end;
 
@@ -3788,7 +3901,7 @@ begin
     //do the OnUpdateDataDone
     aStopWatch.Stop;
     OnUpdateDataDone(Query,
-                     aStopWatch.ElapsedMilliseconds);
+                     aStopWatch.Elapsed.TotalMilliseconds);
 
     //Release the Connection
     if aOwnConnection then ReleaseConnection(aTMPConnectionSocket);
@@ -3917,7 +4030,7 @@ begin
       //do the OnInsertDataDone
       aStopWatch.Stop;
       OnInsertDataDone(Queries[aQueriesIndex],
-                       aStopWatch.ElapsedMilliseconds);
+                       aStopWatch.Elapsed.TotalMilliseconds);
 
     end;
 
@@ -4012,7 +4125,7 @@ begin
       //do the OnDeleteDataDone
       aStopWatch.Stop;
       OnDeleteDataDone(Queries[aQueriesIndex],
-                       aStopWatch.ElapsedMilliseconds);
+                       aStopWatch.Elapsed.TotalMilliseconds);
 
     end;
 
@@ -4070,7 +4183,7 @@ begin
     //do the OnDeleteDataDone
     aStopWatch.Stop;
     OnDeleteDataDone(Query,
-                     aStopWatch.ElapsedMilliseconds);
+                     aStopWatch.Elapsed.TotalMilliseconds);
 
     //Release the Connection
     if aOwnConnection then ReleaseConnection(aTMPConnectionSocket);
@@ -4320,7 +4433,7 @@ begin
     //do the OnDeleteDataDone
     aStopWatch.Stop;
     OnFindAndModifyDataDone(Query,
-                            aStopWatch.ElapsedMilliseconds);
+                            aStopWatch.Elapsed.TotalMilliseconds);
 
     //Release the Connection
     if aOwnConnection then ReleaseConnection(aTMPConnectionSocket);
