@@ -1302,7 +1302,7 @@ procedure TALObjectDictionary<TKey,TValue>.KeyNotify(const Key: TKey; Action: TC
 begin
   inherited;
   if (Action = cnRemoved) and (doOwnsKeys in FOwnerships) then
-    PObject(@Key)^.DisposeOf;
+    PObject(@Key)^.Free;
 end;
 
 {***********************************************************************************************************}
@@ -1310,7 +1310,7 @@ procedure TALObjectDictionary<TKey,TValue>.ValueNotify(const Value: TValue; Acti
 begin
   inherited;
   if (Action = cnRemoved) and (doOwnsValues in FOwnerships) then
-    PObject(@Value)^.DisposeOf;
+    PObject(@Value)^.Free;
 end;
 
 {************************************************************************************}
