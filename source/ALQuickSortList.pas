@@ -107,6 +107,7 @@ interface
 
 Uses {$IF CompilerVersion >= 23} {Delphi XE2}
      System.Classes,
+     System.RTLConsts,
      System.Generics.Defaults,
      System.Generics.Collections;
      {$ELSE}
@@ -307,6 +308,7 @@ Type
   {$IF CompilerVersion >= 23} {Delphi XE2}
   TALDictionary<TKey,TValue> = Class(TDictionary<TKey,TValue>)
   public
+    procedure SetCapacity(ACapacity: Integer);
     function TryAdd(const Key: TKey; const Value: TValue): boolean;
   End;
   {$IFEND}
@@ -1281,6 +1283,26 @@ end;
 
 {$IF CompilerVersion >= 23} {Delphi XE2}
 
+{*******************************************************************}
+procedure TALDictionary<TKey,TValue>.SetCapacity(ACapacity: Integer);
+var
+  newCap: Integer;
+begin
+  if ACapacity < Count then
+    raise EArgumentOutOfRangeException.CreateRes(@SArgumentOutOfRange);
+
+  if ACapacity = 0 then
+    Rehash(0)
+  else
+  begin
+    newCap := 4;
+    while newCap < ACapacity do
+      newCap := newCap shl 1;
+    Rehash(newCap);
+  end
+end;
+
+
 {****************************************************************************************}
 function TALDictionary<TKey,TValue>.TryAdd(const Key: TKey; const Value: TValue): boolean;
 var
@@ -1302,7 +1324,11 @@ procedure TALObjectDictionary<TKey,TValue>.KeyNotify(const Key: TKey; Action: TC
 begin
   inherited;
   if (Action = cnRemoved) and (doOwnsKeys in FOwnerships) then
-    PObject(@Key)^.Free;
+    {$IF CompilerVersion >= 25} {Delphi XE4}
+    PObject(@Key)^.DisposeOf;
+    {$else}
+    PObject(@Key)^.free;
+    {$ifend}
 end;
 
 {***********************************************************************************************************}
@@ -1310,7 +1336,11 @@ procedure TALObjectDictionary<TKey,TValue>.ValueNotify(const Value: TValue; Acti
 begin
   inherited;
   if (Action = cnRemoved) and (doOwnsValues in FOwnerships) then
-    PObject(@Value)^.Free;
+    {$IF CompilerVersion >= 25} {Delphi XE4}
+    PObject(@Value)^.DisposeOf;
+    {$else}
+    PObject(@Value)^.free;
+    {$ifend}
 end;
 
 {************************************************************************************}

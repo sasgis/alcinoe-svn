@@ -503,7 +503,7 @@ type
     FonParseEndObject: TAlJSONParseObjectEvent;
     FonParseStartArray: TAlJSONParseArrayEvent;
     FonParseEndArray: TAlJSONParseArrayEvent;
-    fFormatSettings: TALFormatSettings;
+    fFormatSettings: PALFormatSettings;
   protected
     procedure CheckActive;
     procedure DoParseStartDocument;
@@ -536,6 +536,7 @@ type
     constructor Create(const aActive: Boolean = True); overload; virtual;
     constructor Create(const aFormatSettings: TALformatSettings; const aActive: Boolean = True); overload; virtual;
     destructor Destroy; override;
+    procedure Clear;
     function AddChild(const NodeName: AnsiString; const NodeType: TALJSONNodeType = ntText; const Index: Integer = -1): TALJSONNode;
     function CreateNode(const NodeName: AnsiString; NodeType: TALJSONNodeType): TALJSONNode;
     function IsEmptyDoc: Boolean;
@@ -563,7 +564,7 @@ type
     property onParseEndObject: TAlJSONParseObjectEvent read fonParseEndObject write fonParseEndObject;
     property onParseStartArray: TAlJSONParseArrayEvent read fonParseStartArray write fonParseStartArray;
     property onParseEndArray: TAlJSONParseArrayEvent read fonParseEndArray write fonParseEndArray;
-    property FormatSettings: TALFormatSettings read fFormatSettings write fFormatSettings; // this is use only on GetText/OnParseText to retrieve float and DateTime formatted according to FormatSettings
+    property FormatSettings: PALFormatSettings read fFormatSettings; // this is use only on GetText/OnParseText to retrieve float and DateTime formatted according to FormatSettings
     property Tag: NativeInt read FTag write FTag;
   end;
 
@@ -612,9 +613,9 @@ Procedure ALJSONToXML(aJSONNode: TALJsonNode;
                       aXMLNode: TALXmlNode;
                       const aDefaultXMLElementNameForJSONArrayEntries: AnsiString = 'rec'); overload;
 
-function ALJsonEncodeWithNodeSubTypeHelperFunction(aValue: AnsiString;
+function ALJsonEncodeWithNodeSubTypeHelperFunction(const aValue: AnsiString;
                                                    aNodeSubType: TALJSONNodeSubType;
-                                                   aFormatSettings: TALFormatSettings): AnsiString;
+                                                   const aFormatSettings: TALFormatSettings): AnsiString;
 
 implementation
 
@@ -630,6 +631,8 @@ uses {$IF CompilerVersion >= 23} {Delphi XE2}
      AlHTML,
      ALMime,
      ALMisc;
+
+var _cALJsonISODateFormatSettings: TALFormatSettings;
 
 {*************************************************************************************}
 function ALJSONDocTryStrToRegEx(const S: AnsiString; out Value: TALJSONRegEx): boolean;
@@ -740,8 +743,7 @@ end;
 
 {*************************************************************************************}
 function ALJSONDocTryStrToDateTime(const S: AnsiString; out Value: TDateTime): Boolean;
-var aFormatSettings: TALFormatSettings;
-    aDateStr: AnsiString;
+var aDateStr: AnsiString;
     aQuoteChar: ansiChar;
     P1, P2: integer;
 begin
@@ -789,11 +791,6 @@ begin
   while (P1 <= length(aDateStr)) and (aDateStr[P1] <> aQuoteChar) do inc(P1);
   if (P1 > length(aDateStr)) then exit; // new  Date ( 'yyyy-mm-ddThh:nn:ss.zzzZ' )
                                         //                                      ^P1
-  aFormatSettings := ALDefaultFormatSettings;
-  aFormatSettings.DateSeparator := '-';
-  aFormatSettings.TimeSeparator := ':';
-  aFormatSettings.ShortDateFormat := 'yyyy-mm-dd';
-  aFormatSettings.ShortTimeFormat := 'hh:nn:ss.zzz';
   result := ALTryStrToDateTime(alStringReplace(alStringReplace(AlcopyStr(aDateStr,P2,P1-P2),
                                                'T',
                                                ' ',
@@ -802,7 +799,7 @@ begin
                                '',
                                []),
                                Value,
-                               aFormatSettings);
+                               _cALJsonISODateFormatSettings);
   if not result then exit;
 
   inc(p1);  // // new  Date ( 'yyyy-mm-ddThh:nn:ss.zzzZ' )
@@ -1063,7 +1060,7 @@ begin
   FonParseEndArray := nil;
   FOptions := [];
   NodeIndentStr := CALDefaultNodeIndent;
-  fFormatSettings := ALDefaultFormatSettings;
+  fFormatSettings := @ALDefaultFormatSettings;
   FTag := 0;
   SetActive(aActive);
 end;
@@ -1072,14 +1069,25 @@ end;
 constructor TALJSONDocument.Create(const aFormatSettings: TALformatSettings; const aActive: Boolean = True);
 begin
   create(aActive);
-  fFormatSettings := aFormatSettings;
+  if @aFormatSettings <> @ALDefaultFormatSettings then begin
+    new(fFormatSettings);
+    fFormatSettings^ := aFormatSettings;
+  end;
 end;
 
 {*********************************}
 destructor TALJSONDocument.Destroy;
 begin
+  if fFormatSettings <> @ALDefaultFormatSettings then dispose(fFormatSettings);
   ReleaseDoc;
   inherited;
+end;
+
+{******************************}
+procedure TALJSONDocument.Clear;
+begin
+  releaseDoc;
+  Active := true;
 end;
 
 {****************************************}
@@ -2743,8 +2751,14 @@ procedure TALJSONDocument.DoParseText(const Path: AnsiString; const name: AnsiSt
 begin
   if Assigned(fonParseText) then begin
     case NodeSubType of
-      nstFloat: fonParseText(Self, Path, name, ALFloatToStr(ALStrToFloat(str, ALDefaultFormatSettings),FormatSettings), NodeSubType);
-      nstDateTime: fonParseText(Self, Path, name, ALDateTimeToStr(ALStrToDateTime(Str, ALDefaultFormatSettings),FormatSettings), NodeSubType);
+      nstFloat: begin
+                  if fFormatSettings <> @ALDefaultFormatSettings then fonParseText(Self, Path, name, ALFloatToStr(ALStrToFloat(str, ALDefaultFormatSettings),FormatSettings^), NodeSubType)
+                  else fonParseText(Self, Path, name, str, NodeSubType);
+                end;
+      nstDateTime: begin
+                     if fFormatSettings <> @ALDefaultFormatSettings then fonParseText(Self, Path, name, ALDateTimeToStr(ALStrToDateTime(Str, ALDefaultFormatSettings),FormatSettings^), NodeSubType)
+                     else fonParseText(Self, Path, name, Str, NodeSubType)
+                   end
       else fonParseText(Self, Path, name, str, NodeSubType);
     end;
   end;
@@ -2852,24 +2866,22 @@ end;
 {***********************************}
 {Returns the text value of the node.}
 function TALJSONNode.GetText: AnsiString;
-
-  {~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
-  function _GetFormatSettings: TALFormatSettings;
-  begin
-    if assigned(FDocument) then result := Fdocument.FormatSettings
-    else result := ALDefaultFormatSettings;
-  end;
-
 begin
 
   case NodeSubType of
-    nstFloat: result := ALFloatToStr(GetFloat,_GetFormatSettings);
+    nstFloat: begin
+                if assigned(FDocument) and (Fdocument.FormatSettings <> @ALDefaultFormatSettings) then result := ALFloatToStr(GetFloat,Fdocument.FormatSettings^)
+                else result := GetNodeValue;
+              end;
     nstText: result := GetNodeValue;
     nstObject: result := GetNodeValue;
     nstArray: result := GetNodeValue;
     nstObjectID: result := GetObjectID;
     nstBoolean: result := GetNodeValue;
-    nstDateTime: result := ALDateTimeToStr(GetDateTime,_GetFormatSettings);
+    nstDateTime: begin
+                   if assigned(FDocument) and (Fdocument.FormatSettings <> @ALDefaultFormatSettings) then result := ALDateTimeToStr(GetDateTime,Fdocument.FormatSettings^)
+                   else result := GetNodeValue;
+                 end;
     nstNull: result := GetNodeValue;
     nstRegEx: result := GetNodeValue;
     nstBinary: result := Getbinary.Data;
@@ -4504,7 +4516,7 @@ begin
             if (length(aNames[j]) <= 2) or
                (aNames[j][1] <> '[') or
                (aNames[j][length(aNames[j])] <> ']') or
-               (not ALTryStrToInt(ALCopyStr(aNames[j], 2, Length(aNames[j]) - 2), aIndex)) then raise EALException.Create('Wrong path: "'+aLst.Names[i]+'"');
+               (not ALTryStrToInt(ALCopyStr(aNames[j], 2, Length(aNames[j]) - 2), aIndex)) then raise EALException.CreateFmt('Wrong path: "%s"', [aLst.Names[i]]);
             while aIndex > aCurrJsonNode.ChildNodes.Count - 1 do begin
               if j = aNames.Count - 1 then aCurrJsonNode.AddChild(ntText)
               else if (aNames[j+1] <> '') and
@@ -4580,14 +4592,17 @@ begin
               aDefaultXMLElementNameForJSONArrayEntries);
 end;
 
-{********************************************************************}
-function ALJsonEncodeWithNodeSubTypeHelperFunction(aValue: AnsiString;
+{**************************************************************************}
+function ALJsonEncodeWithNodeSubTypeHelperFunction(const aValue: AnsiString;
                                                    aNodeSubType: TALJSONNodeSubType;
-                                                   aFormatSettings: TALFormatSettings): AnsiString;
+                                                   const aFormatSettings: TALFormatSettings): AnsiString;
 var aStr: AnsiString;
 begin
   case aNodeSubType of
-    nstFloat:      result := ALFloatToStr(ALStrToFloat(aValue, aFormatSettings), ALDefaultFormatSettings);
+    nstFloat:      begin
+                     if @aFormatSettings <> @ALDefaultFormatSettings then result := ALFloatToStr(ALStrToFloat(aValue, aFormatSettings), ALDefaultFormatSettings)
+                     else result := aValue;
+                   end;
     nstText:       result := '"'+ALJavascriptEncode(aValue)+'"';
     nstBinary:     result := 'BinData(0, "' + ALMimeBase64EncodeStringNoCRLF(aValue) + '")';
     nstObjectID:   begin
@@ -4609,5 +4624,13 @@ begin
     else raise Exception.Create('Unknown Node SubType');
   end;
 end;
+
+initialization
+  ALGetLocaleFormatSettings(1033{en-US}, _cALJsonISODateFormatSettings);
+  _cALJsonISODateFormatSettings.DateSeparator := '-';
+  _cALJsonISODateFormatSettings.TimeSeparator := ':';
+  _cALJsonISODateFormatSettings.ShortDateFormat := 'yyyy-mm-dd';
+  _cALJsonISODateFormatSettings.ShortTimeFormat := 'hh:nn:ss.zzz';
+
 
 end.
