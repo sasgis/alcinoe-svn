@@ -7,19 +7,34 @@ Sponsor(s):   Arkadia SA (http://www.arkadia.com)
 product:      ALStringList
 Version:      4.01
 
-Description:  *TALStringList Work the same as Delphi TstringList except
-               that it's allow to search a name=value using a quicksort
-               algorithm when the list is sorted. Also TALStringList
-               use a locale independant algorithme (based on the 8-bit
-               ordinal value of each character) instead of the AnsiCompareText
-               and AnsiCompareStr used by the Delphi TstringList. at the
-               end the sort in TALStringList is up to 10x more faster
-               than in Delphi TstringList. Also TALStringList is not an
-               unicode TstringList but an 100% Ansi StringList
+Description:  TALStringList
+              TALStringList Work the same as Delphi TstringList except that it's
+              allow to search a name=value using a quicksort algorithm when the
+              list is sorted. Also TALStringList use a locale independant
+              algorithme (based on the 8-bit ordinal value of each character)
+              instead of the AnsiCompareText and AnsiCompareStr used by the
+              Delphi TstringList. at the end the sort in TALStringList is up to
+              10x more faster than in Delphi TstringList. Also TALStringList is
+              not an unicode TstringList but an 100% Ansi StringList
 
-              *TALAVLStringList it's also a like a TStringlist, but use
-               internaly an AVL binary Tree to speed up the
-               insert / delete / lookup.
+              TALNVStringList
+              TALNVStringList (NV for NameValue) is same as TALStringList (use
+              also a quicksort algorithme) except that here optimisation is
+              oriented for name/value list instead of string list.
+
+              TALAVLStringList
+              TALAVLStringList is same as TALStringList except that it's use
+              internally a self-balancing binary Tree instead of a quicksort
+              algorithm
+
+              TALHashedStringList
+              TALHashedStringList is same as TALStringList except that it's use
+              an internal hash table instead of a quicksort algorithm. By using
+              TALHashedStringList instead of TALStringList, you can improve
+              performance when the list contains a large number of strings
+              (else if you list don't contain a lot of strings the performance
+              is lower than TALStringList because of the cost to calculate the
+              hash)
 
 Legal issues: Copyright (C) 1999-2013 by Arkadia Software Engineering
 
@@ -273,6 +288,7 @@ Type
     FOnChange: TNotifyEvent;
     FOnChanging: TNotifyEvent;
     FOwnsObject: Boolean;
+    FNameValueOptimization: Boolean;
     procedure ExchangeItems(Index1, Index2: Integer);
     procedure Grow;
     procedure QuickSort(L, R: Integer; SCompare: TALStringListSortCompare);
@@ -319,6 +335,7 @@ Type
     property OnChange: TNotifyEvent read FOnChange write FOnChange;
     property OnChanging: TNotifyEvent read FOnChanging write FOnChanging;
     property OwnsObjects: Boolean read FOwnsObject write FOwnsObject;
+    property NameValueOptimization: Boolean read FNameValueOptimization write FNameValueOptimization;
   end;
 
   {----------------------}
@@ -1720,7 +1737,8 @@ begin
     System.Move(FList[Index + 1], FList[Index],
       (FCount - Index) * SizeOf(TALStringItem));
     // Make sure there is no danglng pointer in the last (now unused) element
-    PPointer(@FList[FCount])^ := nil;
+    PPointer(@FList[FCount].FString)^ := nil;
+    PPointer(@FList[FCount].FObject)^ := nil;
   end;
   if Obj <> nil then
     Obj.Free;
@@ -1881,7 +1899,7 @@ end;
 {******************************************************************}
 function TALStringList.IndexOfName(const Name: ansistring): Integer;
 begin
-  if not Sorted then Result := inherited IndexOfName(Name)
+  if (not Sorted) or (not FNameValueOptimization) then Result := inherited IndexOfName(Name)
   else if not FindName(Name, Result) then Result := -1;
 end;
 
@@ -2202,11 +2220,18 @@ begin
   // IE 50% more slower with average 50 bytes for S1 and S2, it's even
   // more slower when the number of bytes in S1 and S2 increase
 
-  if CaseSensitive then
-    Result := InternalCompareStr(S1, S2)
-  else
-    Result := InternalCompareText(S1, S2);
-
+  if  fNameValueOptimization then begin
+    if CaseSensitive then
+      Result := InternalCompareStr(S1, S2)
+    else
+      Result := InternalCompareText(S1, S2);
+  end
+  else begin
+    if CaseSensitive then
+      Result := AlCompareStr(S1, S2)
+    else
+      Result := AlCompareText(S1, S2);
+  end;
 end;
 
 {*************************************************}
@@ -2221,6 +2246,7 @@ begin
   FOnChange := nil;
   FOnChanging := nil;
   FOwnsObject := OwnsObjects;
+  FNameValueOptimization := True;
 end;
 
 {*******************************}
@@ -2459,7 +2485,9 @@ begin
     System.Move(FList[Index + 1], FList[Index],
       (FCount - Index) * SizeOf(TALNVStringItem));
     // Make sure there is no danglng pointer in the last (now unused) element
-    PPointer(@FList[FCount])^ := nil;
+    PPointer(@FList[FCount].FName)^   := nil;
+    PPointer(@FList[FCount].FValue)^  := nil;
+    PPointer(@FList[FCount].FObject)^ := nil;
   end;
   if Obj <> nil then
     Obj.Free;
