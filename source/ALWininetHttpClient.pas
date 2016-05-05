@@ -297,6 +297,7 @@ type
     FInetConnect: HINTERNET;
     FOnStatusChange: TAlWinInetHTTPClientStatusChangeEvent;
     FDisconnectOnError: Boolean;
+    FIgnoreSecurityErrors: Boolean;
     procedure InitURL(const Value: AnsiString);
     procedure SetAccessType(const Value: TALWinInetHttpInternetOpenAccessType);
     procedure SetInternetOptions(const Value: TAlWininetHTTPClientInternetOptionSet);
@@ -321,6 +322,7 @@ type
     property  InternetOptions: TAlWininetHTTPClientInternetOptionSet read FInternetOptions write SetInternetOptions default [wHttpIo_Keep_connection];
     property  DisconnectOnError: Boolean read FDisconnectOnError write FDisconnectOnError default False; // WinInethttp seam to handle internally the disconnection/reconnection !
     property  OnStatusChange: TAlWinInetHTTPClientStatusChangeEvent read FOnStatusChange write SetOnStatusChange;
+    property  IgnoreSecurityErrors: Boolean read FIgnoreSecurityErrors write FIgnoreSecurityErrors;
   end;
 
 implementation
@@ -380,6 +382,7 @@ begin
   FInternetOptions := [wHttpIo_Keep_connection];
   RequestHeader.UserAgent := 'Mozilla/3.0 (compatible; TALWinInetHTTPClient)';
   FDisconnectOnError := False;
+  FIgnoreSecurityErrors := False;
 end;
 
 {**************************************}
@@ -620,6 +623,8 @@ function TALWinInetHTTPClient.Send(aRequestDataStream: TStream): Integer;
 
 var Request: HINTERNET;
     RetVal: DWord;
+    dwFlags: DWORD;
+    BuffLen: Cardinal;
     BuffSize, Len: Integer;
     INBuffer: _INTERNET_BUFFERSA;
     Buffer: TMemoryStream;
@@ -647,6 +652,16 @@ begin
                                 DWORD_PTR(Self));
 
     CheckError(not Assigned(Request));
+
+    if FIgnoreSecurityErrors and (FURLScheme = INTERNET_SCHEME_HTTPS) then begin
+      BuffLen := SizeOf(dwFlags);
+      CheckError(not InternetQueryOptionA(Request, INTERNET_OPTION_SECURITY_FLAGS, Pointer(@dwFlags), BuffLen));
+      dwFlags := dwFlags or
+        SECURITY_FLAG_IGNORE_REVOCATION or
+        SECURITY_FLAG_IGNORE_UNKNOWN_CA or
+        SECURITY_FLAG_IGNORE_WRONG_USAGE;
+      CheckError(not InternetSetOptionA(Request, INTERNET_OPTION_SECURITY_FLAGS, Pointer(@dwFlags), SizeOf(dwFlags)));
+    end;
 
     { Timeouts }
     if ConnectTimeout > 0 then CheckError(not InternetSetOptionA(Request, INTERNET_OPTION_CONNECT_TIMEOUT, Pointer(@ConnectTimeout), SizeOf(ConnectTimeout)));
